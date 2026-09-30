@@ -6,6 +6,7 @@ import { Kpi, PageHeader } from '@/components/ui';
 import { useDados } from '@/context/Dados';
 import { fmtData, nomeMes, primeiroDoMes, ultimoDoMes } from '@/lib/datetime';
 import { calcularPeriodo, situacaoHoje } from '@/lib/folhaLote';
+import { filaDeAnalise } from '@/lib/analises';
 import { brl } from '@/lib/format';
 
 export default function Dashboard() {
@@ -16,6 +17,7 @@ export default function Dashboard() {
   const ativos = funcionarios.filter(f => f.ativo);
   const trabalhando = ativos.filter(f => situacaoHoje(dados, f).rotulo === 'Trabalhando').length;
   const pendentes = registros.filter(r => r.status_aprovacao === 'pendente').length;
+  const analises = filaDeAnalise(dados.ocorrencias, registros).total;
   const faltas = mes.reduce((s, l) => s + l.calc.faltas, 0);
   const atrasos = mes.reduce((s, l) => s + l.calc.atrasos + l.calc.saidas_antecipadas, 0);
   const folha = mes.reduce((s, l) => s + l.calc.valor_final, 0);
@@ -36,7 +38,7 @@ export default function Dashboard() {
       </PageHeader>
       <div className="grid c4" style={{ marginBottom: 22 }}>
         <Kpi label="Equipe ativa" valor={ativos.length} dica={`${trabalhando} trabalhando agora`} />
-        <Kpi label="Aprovações pendentes" valor={pendentes} dica={pendentes ? <Link to="/painel/ponto">Analisar ajustes de ponto</Link> : 'Tudo em dia'} alerta={pendentes > 0} />
+        <Kpi label="Aprovações pendentes" valor={pendentes + analises} dica={analises ? <Link to="/painel/ocorrencias">{analises} atestado(s)/atraso(s) para analisar</Link> : pendentes ? <Link to="/painel/ponto">Analisar ajustes de ponto</Link> : 'Tudo em dia'} alerta={pendentes + analises > 0} />
         <Kpi label="Faltas no mês" valor={faltas} dica={`${atrasos} atraso(s)/saída(s) antecipada(s)`} alerta={faltas > 0} />
         <Kpi label="Folha do mês (prévia)" valor={brl(folha)} dica={<Link to="/painel/folha">Abrir folha</Link>} />
       </div>

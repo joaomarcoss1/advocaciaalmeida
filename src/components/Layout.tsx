@@ -11,10 +11,11 @@ import { PaginaEsqueleto } from '@/components/ui';
 import logoHorizontal from '@/assets/logo-horizontal.png';
 import { useAuth } from '@/context/Auth';
 import { useDados } from '@/context/Dados';
+import { filaDeAnalise } from '@/lib/analises';
 import { iniciais } from '@/lib/format';
 import { travarRolagem } from '@/lib/rolagem';
 
-interface Item { grupo?: string; to: string; fim?: boolean; rotulo: string; curto?: string; icone: LucideIcon; papeis: ('admin' | 'gerente')[]; pend?: boolean }
+interface Item { grupo?: string; to: string; fim?: boolean; rotulo: string; curto?: string; icone: LucideIcon; papeis: ('admin' | 'gerente')[]; pend?: boolean; analise?: boolean }
 const ITENS: Item[] = [
   { grupo: 'Visão geral', to: '/painel', fim: true, rotulo: 'Painel', icone: LayoutDashboard, papeis: ['admin'] },
   { to: '/painel/gerencia', rotulo: 'Gerência', icone: ShieldCheck, papeis: ['admin', 'gerente'], pend: true },
@@ -22,7 +23,7 @@ const ITENS: Item[] = [
   { to: '/painel/cargos', rotulo: 'Cargos', icone: Briefcase, papeis: ['admin'] },
   { to: '/painel/escalas', rotulo: 'Escalas', icone: CalendarDays, papeis: ['admin', 'gerente'] },
   { grupo: 'Frequência', to: '/painel/ponto', rotulo: 'Registros de ponto', curto: 'Ponto', icone: Clock, papeis: ['admin', 'gerente'] },
-  { to: '/painel/ocorrencias', rotulo: 'Ocorrências e abonos', curto: 'Ocorrências', icone: ClipboardCheck, papeis: ['admin', 'gerente'] },
+  { to: '/painel/ocorrencias', rotulo: 'Ocorrências e abonos', curto: 'Ocorrências', icone: ClipboardCheck, papeis: ['admin', 'gerente'], analise: true },
   { to: '/painel/feriados', rotulo: 'Feriados', icone: CalendarOff, papeis: ['admin', 'gerente'] },
   { grupo: 'Financeiro', to: '/painel/folha', rotulo: 'Folha de pagamento', curto: 'Folha', icone: Wallet, papeis: ['admin'] },
   { to: '/painel/relatorios', rotulo: 'Relatórios', icone: FileBarChart, papeis: ['admin', 'gerente'] },
@@ -60,7 +61,7 @@ function useRotulosDeTabela() {
 
 export default function Layout() {
   const { sessao, sair, modo } = useAuth();
-  const { registros, carregando, agora, atualizacaoPendente, erroAtualizacao, itensPendentes, recarregar } = useDados();
+  const { registros, ocorrencias, carregando, agora, atualizacaoPendente, erroAtualizacao, itensPendentes, recarregar } = useDados();
   const [copiado, setCopiado] = useState(false);
   const [verificando, setVerificando] = useState(false);
   const [aberto, setAberto] = useState(false);
@@ -76,6 +77,7 @@ export default function Layout() {
   const atalhos = ATALHOS[papel].map(to => visiveis.find(i => i.to === to)).filter((i): i is Item => !!i);
   const atual = visiveis.find(i => i.to === loc.pathname);
   const pendentes = registros.filter(r => r.status_aprovacao === 'pendente').length;
+  const analises = filaDeAnalise(ocorrencias, registros).total;
   const dataExtenso = new Date(agora.iso).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Fortaleza' });
   const inicio = papel === 'admin' ? '/painel' : '/painel/gerencia';
 
@@ -101,6 +103,7 @@ export default function Layout() {
               <NavLink to={i.to} end={i.fim} className={({ isActive }) => (isActive ? 'on' : '')}>
                 <i.icone size={18} strokeWidth={1.7} />{i.rotulo}
                 {i.pend && pendentes > 0 && <span className="pill">{pendentes}</span>}
+                {i.analise && analises > 0 && <span className="pill">{analises}</span>}
               </NavLink>
             </span>
           ))}
@@ -155,6 +158,7 @@ export default function Layout() {
           <NavLink key={i.to} to={i.to} end={i.fim} className={({ isActive }) => (isActive ? 'on' : '')}>
             <i.icone size={21} strokeWidth={1.7} />{i.curto ?? i.rotulo}
             {i.pend && pendentes > 0 && <span className="badge-n">{pendentes}</span>}
+            {i.analise && analises > 0 && <span className="badge-n">{analises}</span>}
           </NavLink>
         ))}
         <button onClick={() => setAberto(true)} aria-label="Abrir menu completo"><Menu size={21} strokeWidth={1.7} />Menu</button>

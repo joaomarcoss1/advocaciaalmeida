@@ -1,116 +1,17 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import XLSX from 'xlsx-js-style';
-import logoVertical from '@/assets/logo-vertical.png';
-import { agoraBR, fmtData, isoParaBR } from './datetime';
+import { fmtData, isoParaBR } from './datetime';
+import { CINZA, NAVY, GOLD, R, cabecalhoPdf, dadosPagamento, rodapePdf, type CabecalhoExport, type LinhaExport } from './exportBase';
 import type { FolhaCalculada } from './folha';
 import { minParaHoras } from './format';
-import type { Selo } from './selo';
 import { SITUACAO_DIA } from './rotulos';
-import { AJUSTE_LABEL, OCORRENCIA_LABEL, type AjusteFolha, type ConfigEscritorio, type Funcionario, type RegistroPonto, type TipoOcorrencia } from './types';
+import { AJUSTE_LABEL, OCORRENCIA_LABEL, type Funcionario, type RegistroPonto, type TipoOcorrencia } from './types';
 
-const NAVY: [number, number, number] = [0, 32, 96];
-const GOLD: [number, number, number] = [209, 180, 125];
-const CINZA: [number, number, number] = [244, 246, 250];
-const NAVY_HEX = '002060', GOLD_HEX = 'D1B47D', CINZA_HEX = 'F4F6FA';
-
-export interface LinhaExport { func: Funcionario; cargo: string; calc: FolhaCalculada; ajustes?: AjusteFolha[] }
-export interface CabecalhoExport { escritorio: ConfigEscritorio; periodo: string; selo?: Selo }
-
-const R = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const emissao = () => { const a = agoraBR(); return `${fmtData(a.data)} às ${a.hhmm}`; };
-
-/** Dados de pagamento do funcionário: PIX e/ou conta bancária (mostra os dois quando existirem). */
-export function dadosPagamento(f: Funcionario): { pix: string; conta: string } {
-  const conta = [f.banco, f.agencia && `Ag ${f.agencia}`, f.conta && `${f.tipo_conta ?? 'Conta'} ${f.conta}`].filter(Boolean).join(' · ');
-  return { pix: f.pix ?? '', conta };
-}
-
-async function dataUrl(url: string): Promise<string> {
-  const blob = await (await fetch(url)).blob();
-  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = rej; r.readAsDataURL(blob); });
-}
-
-/** Cabeçalho com logo à esquerda, título à direita, faixa dourada e faixa azul com o período. Devolve o Y livre. */
-async function cabecalhoPdf(doc: jsPDF, titulo: string, sub: string, cab: CabecalhoExport): Promise<number> {
-  const w = doc.internal.pageSize.getWidth();
-  const logo = await dataUrl(logoVertical);
-  const alt = 22, larg = alt * (700 / 396);
-  doc.addImage(logo, 'PNG', 10, 6, larg, alt);
-  doc.setTextColor(...NAVY); doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
-  doc.text(titulo.toUpperCase(), w - 10, 14, { align: 'right' });
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(90, 102, 133);
-  doc.text(sub, w - 10, 20, { align: 'right' });
-  doc.text([cab.escritorio.nome, cab.escritorio.cidade, cab.escritorio.cnpj && `CNPJ ${cab.escritorio.cnpj}`].filter(Boolean).join(' · '), w - 10, 25, { align: 'right' });
-  doc.setFillColor(...GOLD); doc.rect(0, 31, w, 1.6, 'F');
-  doc.setFillColor(...NAVY); doc.rect(0, 32.6, w, 8, 'F');
-  doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(10);
-  doc.text(`PERÍODO: ${cab.periodo.toUpperCase()}`, 10, 38);
-  doc.setFont('helvetica', 'normal'); doc.text(`Emitido em ${emissao()}`, w - 10, 38, { align: 'right' });
-  return 46;
-}
-/** Rodapé de todas as páginas: texto, paginação e, quando há selo, QR Code + código de autenticidade. */
-function rodapePdf(doc: jsPDF, texto: string, selo?: Selo) {
-  const n = doc.getNumberOfPages();
-  for (let i = 1; i <= n; i++) {
-    doc.setPage(i);
-    const w = doc.internal.pageSize.getWidth(), h = doc.internal.pageSize.getHeight();
-    doc.setFontSize(7.5); doc.setTextColor(120, 128, 150);
-    if (selo) doc.text(`${texto} · Página ${i} de ${n}`, w - 8, h - 6, { align: 'right' });
-    else doc.text(`${texto} · Página ${i} de ${n}`, w / 2, h - 6, { align: 'center' });
-    if (selo) {
-      const q = 18;
-      doc.addImage(selo.qr, 'PNG', 8, h - q - 3, q, q);
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...NAVY);
-      doc.text('AUTENTICIDADE', 8 + q + 3, h - 15);
-      doc.setFont('helvetica', 'normal'); doc.setTextColor(90, 102, 133);
-      doc.text(`Código ${selo.codigo}`, 8 + q + 3, h - 11.4);
-      doc.text(`Confira em ${selo.url.replace(/^https?:\/\//, '')}`, 8 + q + 3, h - 7.8);
-    }
-  }
-}
-
-export async function folhaPdf(linhas: LinhaExport[], cab: CabecalhoExport) {
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const y = await cabecalhoPdf(doc, 'Folha de pagamento', 'Relação para conferência e pagamento', cab);
-  const somar = (fn: (l: LinhaExport) => number) => linhas.reduce((t, l) => t + fn(l), 0);
-  const pagamento = (l: LinhaExport) => {
-    const d = dadosPagamento(l.func);
-    const partes = [d.pix && `PIX: ${d.pix}`, d.conta && `Conta: ${d.conta}`].filter(Boolean);
-    return partes.length ? partes.join('\n') : 'Não informado';
-  };
-  autoTable(doc, {
-    startY: y,
-    head: [['Nº', 'Funcionário / Cargo', 'Salário', 'Diária', 'Dias trab./prev.', 'Faltas', 'Desc. faltas', 'Desc. atrasos', 'Adicionais', 'Outros desc.', 'Total a receber', 'PIX / Conta bancária']],
-    body: linhas.map((l, i) => [
-      i + 1, `${l.func.nome}\n${l.cargo}`, R(l.calc.salario_mensal), R(l.calc.valor_diaria),
-      `${l.calc.dias_trabalhados + l.calc.dias_abonados}/${l.calc.dias_previstos}`,
-      l.calc.faltas, l.calc.desconto_faltas ? `- ${R(l.calc.desconto_faltas)}` : '—', l.calc.desconto_atrasos ? `- ${R(l.calc.desconto_atrasos)}` : '—',
-      l.calc.adicionais ? R(l.calc.adicionais) : '—', l.calc.descontos ? `- ${R(l.calc.descontos)}` : '—', R(l.calc.valor_final), pagamento(l),
-    ]),
-    foot: [['', `${linhas.length} funcionário(s)`, R(somar(l => l.calc.salario_mensal)), '', '', String(somar(l => l.calc.faltas)),
-      `- ${R(somar(l => l.calc.desconto_faltas))}`, `- ${R(somar(l => l.calc.desconto_atrasos))}`, R(somar(l => l.calc.adicionais)), `- ${R(somar(l => l.calc.descontos))}`, R(somar(l => l.calc.valor_final)), 'TOTAL A PAGAR']],
-    styles: { fontSize: 7.5, cellPadding: 1.8, textColor: [13, 26, 56], valign: 'middle' },
-    headStyles: { fillColor: NAVY, textColor: 255, halign: 'center' },
-    footStyles: { fillColor: NAVY, textColor: 255, fontStyle: 'bold', halign: 'right' },
-    alternateRowStyles: { fillColor: CINZA },
-    columnStyles: { 0: { halign: 'center', cellWidth: 8 }, 1: { cellWidth: 46 }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'center' }, 5: { halign: 'center' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' }, 9: { halign: 'right' }, 10: { halign: 'right', fontStyle: 'bold' }, 11: { cellWidth: 52, fontSize: 7, halign: 'left' } },
-    didParseCell: h => {
-      if (h.section === 'body' && h.column.index === 1) h.cell.styles.fontStyle = 'bold';
-      if (h.section === 'body' && h.column.index === 6 && String(h.cell.raw).startsWith('-')) h.cell.styles.textColor = [176, 32, 32];
-    },
-    margin: { left: 8, right: 8, bottom: 14 },
-  });
-  const fy = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 22;
-  const w = doc.internal.pageSize.getWidth();
-  if (fy < doc.internal.pageSize.getHeight() - 20) {
-    doc.setDrawColor(...NAVY); doc.line(25, fy, 95, fy); doc.line(w - 95, fy, w - 25, fy);
-    doc.setFontSize(9); doc.setTextColor(60, 70, 100);
-    doc.text('Gerência', 60, fy + 5, { align: 'center' }); doc.text('Administração / Sócio responsável', w - 60, fy + 5, { align: 'center' });
-  }
-  rodapePdf(doc, 'Documento gerencial de conferência · encargos legais (INSS, IRRF, FGTS) não incluídos', cab.selo);
-  doc.save(`Folha-${cab.periodo.replace(/[^\w]+/g, '_')}.pdf`);
-}
+export { dadosPagamento } from './exportBase';
+export type { CabecalhoExport, LinhaExport } from './exportBase';
+import { eventos } from './exportFolha';
+export { folhaPdf, folhaXlsx } from './exportFolha';
 
 export async function holeritePdf(l: LinhaExport, cab: CabecalhoExport) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
@@ -129,7 +30,7 @@ export async function holeritePdf(l: LinhaExport, cab: CabecalhoExport) {
   const proventos: [string, string][] = [[`Salário do período (${c.dias_previstos} dia(s) previstos × ${R(c.valor_diaria)})`, R(c.valor_bruto)]];
   const descontos: [string, string][] = [];
   if (c.faltas) descontos.push([`Faltas: ${c.faltas} dia(s) × ${R(c.valor_diaria)}`, R(c.desconto_faltas)]);
-  if (c.desconto_atrasos) descontos.push([`Atrasos e saídas antecipadas (${minParaHoras(c.minutos_atraso)})`, R(c.desconto_atrasos)]);
+  if (c.desconto_atrasos) descontos.push([`Atrasos e saídas antecipadas (${minParaHoras(c.detalhe.reduce((t, d) => t + (d.descontado_min ?? 0), 0))} descontados, sem descontar a diária inteira)`, R(c.desconto_atrasos)]);
   for (const a of l.ajustes ?? []) {
     const pos = a.tipo === 'adicional' || a.tipo === 'hora_extra';
     const rot = `${AJUSTE_LABEL[a.tipo]}${a.tipo === 'hora_extra' && a.quantidade_horas ? ` (${a.quantidade_horas}h)` : ''}: ${a.motivo}`;
@@ -165,49 +66,28 @@ export async function holeritePdf(l: LinhaExport, cab: CabecalhoExport) {
     body: [[c.dias_previstos, c.dias_trabalhados, c.dias_abonados, c.faltas, c.atrasos, c.saidas_antecipadas]],
   });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 4;
-  const faltas = c.detalhe.filter(d => d.situacao === 'falta').map(d => fmtData(d.data).slice(0, 5));
-  if (faltas.length) { doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(60, 70, 100); doc.text(doc.splitTextToSize(`Dias com falta: ${faltas.join(', ')}`, 180), 14, y); y += 8; }
+  // Ocorrências do período (faltas, atrasos, abonos e ajustes) com o efeito de cada uma
+  const ev = eventos([l]).filter(e => !e.tipo.startsWith('Ajuste'));
+  if (ev.length) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...NAVY); doc.text('Ocorrências do período', 14, y);
+    autoTable(doc, {
+      startY: y + 2, theme: 'grid', styles: { fontSize: 8.2, cellPadding: 1.5, textColor: [13, 26, 56], lineColor: [226, 230, 240] }, headStyles: { fillColor: NAVY, textColor: 255 },
+      head: [['Data', 'Ocorrência', 'Detalhe', 'Análise', 'Efeito']],
+      body: ev.slice(0, 40).map(e => [fmtData(e.data), e.tipo, e.detalhe, e.situacao, e.efeito]),
+      columnStyles: { 0: { cellWidth: 22 }, 4: { halign: 'right', cellWidth: 40 } },
+      didParseCell: h => { if (h.section === 'body' && h.column.index === 4) h.cell.styles.textColor = ev[h.row.index].valor < 0 ? [176, 32, 32] : [110, 122, 150]; },
+      margin: { left: 14, right: 14, bottom: 26 },
+    });
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
+  }
   const h = doc.internal.pageSize.getHeight();
+  if (y + 40 > h - 26) { doc.addPage(); y = 30; }
   const sy = Math.max(y + 26, h - 55);
   doc.setDrawColor(...NAVY); doc.line(20, sy, 90, sy); doc.line(120, sy, 190, sy);
   doc.setFontSize(9); doc.setTextColor(60, 70, 100);
   doc.text('Funcionário(a)', 55, sy + 5, { align: 'center' }); doc.text('Responsável pelo pagamento', 155, sy + 5, { align: 'center' });
   rodapePdf(doc, 'Documento gerencial de conferência · não substitui o recibo/holerite oficial (INSS, IRRF e FGTS não incluídos)', cab.selo);
   doc.save(`Demonstrativo-${l.func.nome.replace(/\s+/g, '_')}-${cab.periodo.replace(/[^\w]+/g, '_')}.pdf`);
-}
-
-export function folhaXlsx(linhas: LinhaExport[], cab: CabecalhoExport) {
-  const borda = { top: { style: 'thin', color: { rgb: 'CCD3E3' } }, bottom: { style: 'thin', color: { rgb: 'CCD3E3' } }, left: { style: 'thin', color: { rgb: 'CCD3E3' } }, right: { style: 'thin', color: { rgb: 'CCD3E3' } } };
-  const head = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: NAVY_HEX } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: borda };
-  const fmt = 'R$ #,##0.00';
-  const cols = ['Nº', 'Funcionário', 'Cargo', 'Salário mensal', 'Diária', 'Dias previstos', 'Trabalhados', 'Abonados', 'Faltas', 'Bruto do período', 'Desc. faltas', 'Desc. atrasos', 'Adicionais', 'Descontos', 'Total a receber', 'Chave PIX', 'Conta bancária'];
-  const ws: XLSX.WorkSheet = {};
-  const put = (r: number, c: number, v: string | number, s?: object, z?: string) => { ws[XLSX.utils.encode_cell({ r, c })] = { v, t: typeof v === 'number' ? 'n' : 's', s, ...(z ? { z } : {}) }; };
-  put(0, 0, cab.escritorio.nome.toUpperCase(), { font: { bold: true, sz: 16, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: NAVY_HEX } }, alignment: { horizontal: 'center' } });
-  put(1, 0, `Folha de pagamento · ${cab.periodo} · emitida em ${emissao()}`, { font: { bold: true, color: { rgb: NAVY_HEX } }, fill: { fgColor: { rgb: GOLD_HEX } }, alignment: { horizontal: 'center' } });
-  cols.forEach((h, c) => { put(3, c, h, head); if (c > 0) { put(0, c, '', { fill: { fgColor: { rgb: NAVY_HEX } } }); put(1, c, '', { fill: { fgColor: { rgb: GOLD_HEX } } }); } });
-  linhas.forEach((l, i) => {
-    const r = 4 + i, c = l.calc;
-    const s = { border: borda, fill: i % 2 ? { fgColor: { rgb: CINZA_HEX } } : undefined };
-    const pg = dadosPagamento(l.func);
-    [i + 1, l.func.nome, l.cargo, c.salario_mensal, c.valor_diaria, c.dias_previstos, c.dias_trabalhados, c.dias_abonados, c.faltas, c.valor_bruto, c.desconto_faltas, c.desconto_atrasos, c.adicionais, c.descontos, c.valor_final, pg.pix || '—', pg.conta || '—']
-      .forEach((v, k) => put(r, k, v, k === 14 ? { ...s, font: { bold: true } } : s, [3, 4, 9, 10, 11, 12, 13, 14].includes(k) ? fmt : undefined));
-  });
-  const rt = 4 + linhas.length;
-  const tot = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: NAVY_HEX } } };
-  put(rt, 0, 'TOTAL', tot);
-  for (let k = 1; k < cols.length; k++) put(rt, k, '', tot);
-  [9, 10, 11, 12, 13, 14].forEach(k => {
-    const col = XLSX.utils.encode_col(k);
-    ws[XLSX.utils.encode_cell({ r: rt, c: k })] = { t: 'n', f: `SUM(${col}5:${col}${rt})`, v: linhas.reduce((s, l) => s + [l.calc.valor_bruto, l.calc.desconto_faltas, l.calc.desconto_atrasos, l.calc.adicionais, l.calc.descontos, l.calc.valor_final][k - 9], 0), s: tot, z: fmt };
-  });
-  ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rt, c: cols.length - 1 } });
-  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: cols.length - 1 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: cols.length - 1 } }];
-  ws['!cols'] = [5, 30, 26, 14, 12, 10, 12, 10, 8, 16, 13, 13, 13, 13, 16, 30, 40].map(wch => ({ wch }));
-  ws['!rows'] = [{ hpt: 26 }, { hpt: 20 }, { hpt: 8 }, { hpt: 34 }];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Folha');
-  XLSX.writeFile(wb, `Folha-${cab.periodo.replace(/[^\w]+/g, '_')}.xlsx`);
 }
 
 export interface LinhaFrequencia {

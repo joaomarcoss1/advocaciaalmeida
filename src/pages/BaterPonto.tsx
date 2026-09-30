@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, Coffee, Delete, History, Lock, LogIn, LogOut, MapPin, MapPinOff, Maximize2, Minimize2, RotateCcw, Search, Undo2, UserSearch, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Coffee, Delete, History, Lock, LogIn, LogOut, MapPin, FilePlus2, MapPinOff, Maximize2, Minimize2, RotateCcw, Search, Undo2, UserSearch, X } from 'lucide-react';
+import SeletorAnexos from '@/components/SeletorAnexos';
+import { Field } from '@/components/ui';
 import Stage from '@/components/Stage';
-import { getDb, PONTO_ERRO_MSG, type ContextoPonto, type MarcacaoHistorico, type PessoaPonto } from '@/data/db';
+import { getDb, PONTO_ERRO_MSG, type ArquivoAnexo, type ContextoPonto, type JustificativaFunc, type MarcacaoHistorico, type PessoaPonto } from '@/data/db';
 import { addDays, agoraBR, fmtData, isoParaBR, type AgoraBR } from '@/lib/datetime';
 import { iniciais, minParaHoras, semAcento } from '@/lib/format';
 import { fmtDistancia, lerPosicao, verificarLocal, type EstadoLocal } from '@/lib/geo';
 import { classificar, exigeJustificativa, previstoDoTipo, proximoTipo, sequenciaDoDia, turnoDaData } from '@/lib/ponto';
-import { TIPO_MARCACAO_LABEL, type Escala, type TipoMarcacao } from '@/lib/types';
+import { ANALISE_LABEL, OCORRENCIA_LABEL, TIPO_MARCACAO_LABEL, type Escala, type TipoMarcacao, type TipoOcorrencia } from '@/lib/types';
 
 const ICONE: Record<TipoMarcacao, typeof LogIn> = { entrada: LogIn, saida_intervalo: Coffee, retorno_intervalo: Undo2, saida: LogOut };
 const STATUS_TXT: Record<string, string> = {
@@ -63,10 +65,16 @@ export default function BaterPonto() {
   const [escolha, setEscolha] = useState<TipoMarcacao | null>(null);
   const [just, setJust] = useState('');
   const [enviando, setEnviando] = useState(false);
-  const [sucesso, setSucesso] = useState<{ tipo: TipoMarcacao; status: string; hora: string; dif: number } | null>(null);
+  const [sucesso, setSucesso] = useState<{ tipo: TipoMarcacao; status: string; hora: string; dif: number; analise?: string | null; aviso?: string } | null>(null);
   const [retro, setRetro] = useState(false);
   const [retroForm, setRetroForm] = useState({ data: '', tipo: 'entrada' as TipoMarcacao, hora: '', justificativa: '' });
   const [retroOk, setRetroOk] = useState(false);
+  const [arqAtraso, setArqAtraso] = useState<ArquivoAnexo[]>([]);
+  const [justs, setJusts] = useState<JustificativaFunc[]>([]);
+  const [aus, setAus] = useState(false);
+  const [ausForm, setAusForm] = useState({ tipo: 'atestado' as TipoOcorrencia, inicio: '', fim: '', obs: '' });
+  const [ausArq, setAusArq] = useState<ArquivoAnexo[]>([]);
+  const [ausOk, setAusOk] = useState(false);
   const ocioso = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [local, setLocal] = useState<EstadoLocal>({ estado: 'verificando' });
   // Modo quiosque (tablet na recepção): relógio grande, botões maiores e reinício rápido. Guardado neste aparelho.
@@ -108,6 +116,7 @@ export default function BaterPonto() {
   const voltar = useCallback(() => {
     setEtapa('pessoa'); setPessoa(null); setPin(''); setErro(''); setHist([]); setEscolha(null); setJust('');
     setSucesso(null); setRetro(false); setRetroOk(false); setBusca(''); setTentou(false);
+    setArqAtraso([]); setJusts([]); setAus(false); setAusArq([]); setAusOk(false);
   }, []);
 
   // Trava de segurança: volta à lista após 2 min sem interação no painel
@@ -181,7 +190,7 @@ export default function BaterPonto() {
     const db = await getDb();
     const r = await db.ponto.historico(fid, pinAtual, 30);
     if (!r.ok) { setErro(PONTO_ERRO_MSG[r.erro]); return false; }
-    setHist(r.registros);
+    setHist(r.registros); setJusts(r.justificativas ?? []);
     return true;
   }
 
@@ -224,8 +233,31 @@ export default function BaterPonto() {
         if (r.erro === 'FORA_DA_AREA' || r.erro === 'GPS_OBRIGATORIO') { setEscolha(null); checarLocal(); }
         return;
       }
-      setSucesso({ tipo: escolha, status: r.status, hora: isoParaBR(r.horario_real).hhmm, dif: r.diferenca_minutos });
-      setEscolha(null); setJust('');
+      // anexos do atraso (atestado etc.): vão para o administrador junto com a justificativa
+      let aviso: string | undefined;
+      for (const arq of arqAtraso) {
+        const a = await db.ponto.anexar({ funcionario_id: pessoa.id, pin, registro_id: r.id, arquivo: arq });
+        if (!a.ok) { aviso = `Ponto registrado, mas o arquivo "${arq.nome}" não foi enviado: ${PONTO_ERRO_MSG[a.erro]}`; break; }
+      }
+      setSucesso({ tipo: escolha, status: r.status, hora: isoParaBR(r.horario_real).hhmm, dif: r.diferenca_minutos, analise: r.analise, aviso });
+      setEscolha(null); setJust(''); setArqAtraso([]);
+      await carregarHistorico(pessoa.id, pin);
+    } catch (e) { setErro((e as Error).message); }
+    finally { setEnviando(false); }
+  }
+
+  async function enviarAusencia() {
+    if (!pessoa) return;
+    setErro(''); setEnviando(true);
+    try {
+      const db = await getDb();
+      const r = await db.ponto.justificarAusencia({ funcionario_id: pessoa.id, pin, inicio: ausForm.inicio, fim: ausForm.fim, tipo: ausForm.tipo, observacao: ausForm.obs });
+      if (!r.ok) { setErro(r.erro === 'JA_REGISTRADO' ? 'Já existe um envio ou ocorrência para esse período.' : PONTO_ERRO_MSG[r.erro]); return; }
+      for (const arq of ausArq) {
+        const a = await db.ponto.anexar({ funcionario_id: pessoa.id, pin, ocorrencia_id: r.id, arquivo: arq });
+        if (!a.ok) { setErro(`Justificativa enviada, mas o arquivo "${arq.nome}" não foi: ${PONTO_ERRO_MSG[a.erro]}`); break; }
+      }
+      setAusOk(true); setAus(false); setAusArq([]);
       await carregarHistorico(pessoa.id, pin);
     } catch (e) { setErro((e as Error).message); }
     finally { setEnviando(false); }
@@ -343,19 +375,22 @@ export default function BaterPonto() {
                   <div>
                     <strong>{TIPO_MARCACAO_LABEL[sucesso.tipo]} registrada às {sucesso.hora}</strong>
                     <div>{STATUS_TXT[sucesso.status]}{sucesso.dif !== 0 && sucesso.status !== 'extra' ? ` (${sucesso.dif > 0 ? '+' : '−'}${minParaHoras(sucesso.dif)})` : ''}</div>
+                    {sucesso.analise === 'pendente' && <div style={{ marginTop: 6, fontSize: '.9rem' }}>Enviado para análise do administrador (aba Ocorrências).</div>}
+                    {sucesso.aviso && <div style={{ marginTop: 6, fontSize: '.9rem', color: 'var(--bad)' }}>{sucesso.aviso}</div>}
                     {volta !== null && (
                       <span className="volta">Voltando à tela inicial em {volta}s · <button type="button" className="link-btn" onClick={() => setVolta(null)}>continuar aqui</button></span>
                     )}
                   </div>
                 </div>
               )}
+              {ausOk && <div className="notice gold" role="status">Atestado enviado. O administrador vai analisar: se aceito, o dia é pago normalmente; se recusado, será descontado da folha.</div>}
               {retroOk && <div className="notice gold" role="status">Solicitação enviada. A gerência vai analisar o ajuste do seu ponto.</div>}
               {erro && <div className="notice bad" role="alert">{erro}</div>}
 
-              {cerca && ctx && !retro && !dentro && <StatusLocal local={local} raio={ctx.ponto.geofence_raio_m} onVerificar={checarLocal} />}
-              {cerca && ctx && !retro && dentro && local.estado === 'dentro' && <StatusLocal compacto local={local} raio={ctx.ponto.geofence_raio_m} onVerificar={checarLocal} />}
+              {cerca && ctx && !retro && !aus && !dentro && <StatusLocal local={local} raio={ctx.ponto.geofence_raio_m} onVerificar={checarLocal} />}
+              {cerca && ctx && !retro && !aus && dentro && local.estado === 'dentro' && <StatusLocal compacto local={local} raio={ctx.ponto.geofence_raio_m} onVerificar={checarLocal} />}
 
-              {!retro && !escolha && (
+              {!retro && !aus && !escolha && (
                 <>
                   {!turnoHoje && <div className="notice gold">Hoje não é dia de expediente na sua escala. As marcações serão registradas como extras.</div>}
                   <div className="stack" style={{ gap: 10 }}>
@@ -374,6 +409,9 @@ export default function BaterPonto() {
                       );
                     })}
                   </div>
+                  <button className="btn ghost block" onClick={() => { setAus(true); setErro(''); setAusOk(false); setSucesso(null); setAusArq([]); setAusForm({ tipo: 'atestado', inicio: agora.data, fim: agora.data, obs: '' }); }}>
+                    <FilePlus2 size={16} />Enviar atestado / justificar uma falta
+                  </button>
                   <button className="btn ghost block" onClick={() => { setRetro(true); setErro(''); setRetroOk(false); setSucesso(null); setRetroForm({ data: addDays(agora.data, -1), tipo: 'entrada', hora: '', justificativa: '' }); }}>
                     <RotateCcw size={16} />Esqueci de bater o ponto em outro dia
                   </button>
@@ -400,11 +438,37 @@ export default function BaterPonto() {
                       <textarea id="just" className="textarea" value={just} onChange={e => setJust(e.target.value)} placeholder="Ex.: audiência no fórum, trânsito, consulta médica…" />
                     </div>
                   )}
+                  {exigeJustificativa(previa.status) && (
+                    <>
+                      <SeletorAnexos arquivos={arqAtraso} onChange={setArqAtraso} rotulo="Anexar atestado ou comprovante (opcional)" dica="PDF ou foto. Ajuda o administrador a aceitar sua justificativa." />
+                      <p className="hint" style={{ margin: 0 }}>Este registro vai para <strong>análise do administrador</strong>. Se aceito, não há desconto; se recusado, desconta apenas o tempo de {previa.status === 'atraso' ? 'atraso' : 'saída antecipada'} (não a diária inteira).</p>
+                    </>
+                  )}
                   {ctx?.ponto.geofence_ativo && <p className="hint"><MapPin size={14} style={{ verticalAlign: 'middle' }} /> Sua localização será conferida novamente no momento do registro.</p>}
                   <button className="btn block" style={{ minHeight: 50 }} disabled={enviando || !dentro || (exigeJustificativa(previa.status) && just.trim().length < 3)} onClick={confirmar}>
                     {enviando ? 'Registrando…' : 'Confirmar registro'}
                   </button>
-                  <button className="btn ghost block" onClick={() => { setEscolha(null); setJust(''); }}>Cancelar</button>
+                  <button className="btn ghost block" onClick={() => { setEscolha(null); setJust(''); setArqAtraso([]); }}>Cancelar</button>
+                </div>
+              )}
+
+              {aus && (
+                <div className="stack">
+                  <div className="section-title">Enviar atestado / justificar falta</div>
+                  <Field label="Motivo">
+                    <select className="select" value={ausForm.tipo} onChange={e => setAusForm({ ...ausForm, tipo: e.target.value as TipoOcorrencia })}>
+                      {(['atestado', 'declaracao', 'audiencia_externa', 'outro'] as TipoOcorrencia[]).map(t => <option key={t} value={t}>{OCORRENCIA_LABEL[t]}</option>)}
+                    </select>
+                  </Field>
+                  <div className="grid c2">
+                    <Field label="De"><input className="input" type="date" min={addDays(agora.data, -45)} max={addDays(agora.data, 30)} value={ausForm.inicio} onChange={e => setAusForm({ ...ausForm, inicio: e.target.value, fim: ausForm.fim < e.target.value ? e.target.value : ausForm.fim })} /></Field>
+                    <Field label="Até"><input className="input" type="date" min={ausForm.inicio} max={addDays(agora.data, 30)} value={ausForm.fim} onChange={e => setAusForm({ ...ausForm, fim: e.target.value })} /></Field>
+                  </div>
+                  <Field label="Observação (opcional)"><textarea className="textarea" value={ausForm.obs} onChange={e => setAusForm({ ...ausForm, obs: e.target.value })} placeholder="Ex.: consulta médica, dias de repouso indicados…" /></Field>
+                  <SeletorAnexos arquivos={ausArq} onChange={setAusArq} rotulo={ausForm.tipo === 'atestado' ? 'Anexar o atestado (obrigatório)' : 'Anexar comprovante'} dica="PDF ou foto do documento, de até 2 MB. Fotos são reduzidas automaticamente." />
+                  <p className="hint" style={{ margin: 0 }}>O administrador vai analisar. <strong>Aceito:</strong> a diária do dia é paga normalmente. <strong>Recusado:</strong> o dia é descontado da folha.</p>
+                  <button className="btn gold block" disabled={enviando || !ausForm.inicio || !ausForm.fim || (ausForm.tipo === 'atestado' && ausArq.length === 0)} onClick={enviarAusencia}>{enviando ? 'Enviando…' : 'Enviar para análise'}</button>
+                  <button className="btn ghost block" onClick={() => setAus(false)}>Cancelar</button>
                 </div>
               )}
 
@@ -436,12 +500,29 @@ export default function BaterPonto() {
                       <span className="grow">{TIPO_MARCACAO_LABEL[r.tipo]}</span>
                       {r.status_aprovacao === 'pendente' ? <span className="badge warn">Em análise</span>
                         : r.status_aprovacao === 'rejeitado' ? <span className="badge bad" title={r.motivo_rejeicao ?? ''}>Rejeitado</span>
-                        : r.status === 'atraso' || r.status === 'saida_antecipada' ? <span className="badge bad">{STATUS_TXT[r.status]}</span> : null}
+                        : r.status === 'atraso' || r.status === 'saida_antecipada'
+                          ? <span className={`badge ${r.analise === 'aceita' ? 'ok' : r.analise === 'pendente' ? 'warn' : 'bad'}`} title={r.motivo_decisao ?? ''}>
+                            {STATUS_TXT[r.status]}{r.analise ? ` · ${r.analise === 'pendente' ? 'em análise' : r.analise === 'aceita' ? 'aceito' : 'recusado'}` : ''}</span> : null}
                     </div>
                   ))}
                   {!hist.length && <span className="muted">Nenhum registro ainda.</span>}
                 </div>
               </div>
+              {justs.length > 0 && (
+                <div>
+                  <div className="section-title"><FilePlus2 size={14} style={{ verticalAlign: 'middle' }} /> Atestados e justificativas enviados</div>
+                  <div className="timeline" style={{ marginTop: 8 }}>
+                    {justs.slice(0, 5).map(j => (
+                      <div className="tl-item" key={j.id}>
+                        <span className={`dot ${j.status_analise === 'recusada' ? 'off' : ''}`} />
+                        <span className="mono muted">{fmtData(j.data_inicio).slice(0, 5)}{j.data_fim !== j.data_inicio ? `–${fmtData(j.data_fim).slice(0, 5)}` : ''}</span>
+                        <span className="grow">{OCORRENCIA_LABEL[j.tipo]}{j.anexos ? ` · ${j.anexos} arquivo(s)` : ''}</span>
+                        <span className={`badge ${j.status_analise === 'aceita' ? 'ok' : j.status_analise === 'pendente' ? 'warn' : 'bad'}`} title={j.motivo_decisao ?? ''}>{ANALISE_LABEL[j.status_analise]}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
           </div>

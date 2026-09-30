@@ -86,6 +86,10 @@ export const TIPO_MARCACAO_LABEL: Record<TipoMarcacao, string> = {
 export type StatusMarcacao = 'no_horario' | 'tolerancia' | 'atraso' | 'saida_antecipada' | 'extra' | 'manual' | 'pendente';
 export type StatusAprovacao = 'aprovado' | 'pendente' | 'rejeitado';
 
+/** Análise do administrador sobre uma justificativa (atestado) ou um atraso. */
+export type StatusAnalise = 'pendente' | 'aceita' | 'recusada';
+export const ANALISE_LABEL: Record<StatusAnalise, string> = { pendente: 'Em análise', aceita: 'Aceita', recusada: 'Recusada' };
+
 export interface RegistroPonto {
   id: string;
   funcionario_id: string;
@@ -105,6 +109,9 @@ export interface RegistroPonto {
   aprovado_por: string | null;
   aprovado_em: string | null;
   created_at: string;
+  /** Atraso / saída antecipada acima do limite: null = não precisa de análise. */
+  analise?: StatusAnalise | null;
+  motivo_decisao?: string | null;
 }
 
 export type TipoOcorrencia = 'atestado' | 'declaracao' | 'audiencia_externa' | 'folga_compensacao' | 'ferias' | 'licenca' | 'outro';
@@ -127,6 +134,23 @@ export interface Ocorrencia {
   tipo: TipoOcorrencia;
   remunerado: boolean;
   observacao: string | null;
+  created_at: string;
+  /** 'pendente' = enviada pelo funcionário, aguardando o administrador. Ausente/'aceita' = vale como abono. */
+  status_analise?: StatusAnalise;
+  origem?: 'painel' | 'funcionario';
+  motivo_decisao?: string | null;
+  decidido_em?: string | null;
+}
+
+/** Metadados de um arquivo anexado (PDF/foto). O conteúdo é buscado só quando o administrador abre. */
+export interface AnexoMeta {
+  id: string;
+  funcionario_id: string;
+  ocorrencia_id: string | null;
+  registro_id: string | null;
+  nome: string;
+  mime: string;
+  tamanho: number;
   created_at: string;
 }
 
@@ -187,7 +211,12 @@ export interface DetalheDia {
   incompleto?: boolean;
   /** Situação definida manualmente (ajuste de dia). */
   manual?: boolean;
-  minutos_atraso?: number;
+  /** Falta que veio de um atestado ainda em análise (provisória) ou recusado. */
+  analise?: StatusAnalise;
+  /** Atraso/saída antecipada do dia: minutos, análise e minutos efetivamente descontados. */
+  atraso_min?: number;
+  atraso_analise?: StatusAnalise | null;
+  descontado_min?: number;
 }
 
 export type StatusFolha = 'aberta' | 'fechada' | 'paga';

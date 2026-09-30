@@ -1,7 +1,7 @@
 import { addDays, eachDay, diaSemana, hhmmParaMin, primeiroDoMes, ultimoDoMes } from './datetime';
 import { minutosJornada, turnoDaData } from './ponto';
 import type {
-  AjusteDia, AjusteFolha, Config, DetalheDia, Escala, Feriado, Folha, Funcionario, Ocorrencia, RegistroPonto, SituacaoDia,
+  AjusteDia, AjusteFolha, Config, DetalheDia, Escala, Feriado, Folha, Funcionario, Ocorrencia, RegistroPonto, SituacaoDia, StatusAnalise,
 } from './types';
 
 export const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -93,6 +93,7 @@ export function calcularFolha(inp: FolhaInput): FolhaCalculada {
     const mes = d.slice(0, 7);
     let situacao: SituacaoDia;
     let nota: string | undefined;
+    let analiseDia: StatusAnalise | undefined;
 
     if (!contratoAtivo) situacao = 'fora_contrato';
     else if (!turno) {
@@ -105,7 +106,9 @@ export function calcularFolha(inp: FolhaInput): FolhaCalculada {
     } else {
       previstos++;
       prevPorMes.set(mes, (prevPorMes.get(mes) ?? 0) + 1);
-      const oc = ocs.find(o => d >= o.data_inicio && d <= o.data_fim);
+      const doDia = ocs.filter(o => d >= o.data_inicio && d <= o.data_fim);
+      const oc = doDia.find(o => (o.status_analise ?? 'aceita') === 'aceita');   // só ocorrência aceita abona
+      const emAnalise = doDia.find(o => (o.status_analise ?? 'aceita') !== 'aceita');   // pendente / recusada
       const ov = manual.get(d);
       if (ov) {
         nota = ov.observacao ?? undefined;
@@ -119,7 +122,10 @@ export function calcularFolha(inp: FolhaInput): FolhaCalculada {
       else if (d === hoje && agoraMin <= hhmmParaMin(turno.saida)) situacao = 'hoje';
       else {
         situacao = 'falta';
-        nota = oc ? `${oc.tipo} (não remunerado)` : undefined;
+        nota = oc ? `${oc.tipo} (não remunerado)`
+          : emAnalise ? (emAnalise.status_analise === 'pendente' ? 'Justificativa em análise (desconto provisório)' : 'Justificativa recusada')
+          : undefined;
+        analiseDia = emAnalise && !oc ? emAnalise.status_analise : undefined;
         faltas++;
         faltasPorMes.set(mes, (faltasPorMes.get(mes) ?? 0) + 1);
         if (diasPendentes.has(d)) pendencias++;
@@ -131,7 +137,7 @@ export function calcularFolha(inp: FolhaInput): FolhaCalculada {
       const tipos = new Set(aprovados.filter(r => r.data === d).map(r => r.tipo));
       incompleto = !tipos.has('entrada') || !tipos.has('saida');
     }
-    detalhe.push({ data: d, situacao, ...(nota ? { nota } : {}), ...(incompleto ? { incompleto } : {}), ...(manual.has(d) && turno && !feriado && contratoAtivo ? { manual: true } : {}) });
+    detalhe.push({ data: d, situacao, ...(nota ? { nota } : {}), ...(analiseDia ? { analise: analiseDia } : {}), ...(incompleto ? { incompleto } : {}), ...(manual.has(d) && turno && !feriado && contratoAtivo ? { manual: true } : {}) });
   }
 
   // Valores: por mês, para que salário ÷ dias previstos feche exatamente o salário no mês cheio.
@@ -150,21 +156,35 @@ export function calcularFolha(inp: FolhaInput): FolhaCalculada {
     bruto = r2(bruto); descFaltas = r2(descFaltas);
   }
 
-  // Atrasos e saídas antecipadas (somente marcações aprovadas)
+  // Atrasos e saídas antecipadas (somente marcações aprovadas).
+  // Regra da análise do administrador (aba Ocorrências): aceito = não desconta; recusado ou ainda em análise =
+  // desconta SÓ os minutos do atraso (valor da hora da jornada do dia), nunca a diária inteira.
+  // Sem análise (registros antigos), vale a configuração "descontar atrasos".
   let atrasos = 0, saidas = 0, minutosAtraso = 0, descAtrasos = 0;
+  const porDia = new Map<string, { min: number; analise: StatusAnalise | null; descontado: number }>();
   for (const r of aprovados) {
     if (r.status !== 'atraso' && r.status !== 'saida_antecipada') continue;
     const min = Math.abs(r.diferenca_minutos ?? 0);
     if (r.status === 'atraso') atrasos++; else saidas++;
     minutosAtraso += min;
-    if (config.folha.descontar_atrasos) {
+    const analise = r.analise ?? null;
+    const descontar = analise === 'recusada' || analise === 'pendente' || (analise === null && config.folha.descontar_atrasos);
+    let minDesc = 0;
+    if (descontar) {
       const jornada = minutosJornada(turnoDaData(escala, r.data));
       const total = previstosDoMes(`${r.data.slice(0, 7)}-01`);
       const diariaDoDia = fixa ?? (total > 0 ? salario / total : 0);
-      if (jornada > 0 && diariaDoDia > 0) descAtrasos += (diariaDoDia / jornada) * min;
+      if (jornada > 0 && diariaDoDia > 0) { descAtrasos += (diariaDoDia / jornada) * min; minDesc = min; }
     }
+    const ant = porDia.get(r.data);
+    const pior: StatusAnalise | null = ant?.analise === 'pendente' || analise === 'pendente' ? 'pendente' : ant?.analise === 'recusada' || analise === 'recusada' ? 'recusada' : (analise ?? ant?.analise ?? null);
+    porDia.set(r.data, { min: (ant?.min ?? 0) + min, analise: pior, descontado: (ant?.descontado ?? 0) + minDesc });
   }
   descAtrasos = r2(descAtrasos);
+  for (const dd of detalhe) {
+    const x = porDia.get(dd.data);
+    if (x) { dd.atraso_min = x.min; dd.atraso_analise = x.analise; dd.descontado_min = x.descontado; }
+  }
 
   const aj = inp.ajustes.filter(a => a.funcionario_id === func.id && a.data >= inicio && a.data <= fim);
   const adicionais = r2(aj.filter(a => a.tipo === 'adicional' || a.tipo === 'hora_extra').reduce((s, a) => s + Number(a.valor), 0));
@@ -205,4 +225,35 @@ export function proximoDiaDeTrabalho(escala: Escala | null, feriados: Set<string
     if (turnoDaData(escala, d) && !feriados.has(d) && diaSemana(d) !== 0) return d;
   }
   return null;
+}
+
+/** Quantos itens do período ainda dependem da decisão do administrador (valores provisórios). */
+export function pendenciasDeAnalise(detalhe: DetalheDia[]): { atestados: number; atrasos: number; total: number } {
+  const atestados = detalhe.filter(d => d.analise === 'pendente').length;
+  const atrasos = detalhe.filter(d => d.atraso_analise === 'pendente').length;
+  return { atestados, atrasos, total: atestados + atrasos };
+}
+
+/** Quanto uma ocorrência (atestado) em análise vale em dinheiro: dias úteis do período × diária. */
+export function impactoOcorrencia(func: Funcionario, escala: Escala | null, feriados: Feriado[], oc: Pick<Ocorrencia, 'data_inicio' | 'data_fim'>): { dias: number; valor: number } {
+  const fer = new Set(feriados.map(f => f.data));
+  const fixa = Number(func.diaria_fixa) > 0 ? Number(func.diaria_fixa) : null;
+  let dias = 0, valor = 0;
+  for (const d of eachDay(oc.data_inicio, oc.data_fim)) {
+    if (d < func.data_admissao || (func.data_desligamento && d > func.data_desligamento)) continue;
+    if (!turnoDaData(escala, d) || fer.has(d)) continue;
+    dias++;
+    valor += fixa ?? valorDiaria(Number(func.salario_mensal) || 0, diasPrevistosNoMes(escala, fer, d));
+  }
+  return { dias, valor: r2(valor) };
+}
+
+/** Quanto custa um atraso/saída antecipada recusado: só os minutos, na hora da jornada do dia. */
+export function impactoAtraso(func: Funcionario, escala: Escala | null, feriados: Feriado[], reg: Pick<RegistroPonto, 'data' | 'diferenca_minutos'>): { minutos: number; valor: number } {
+  const fer = new Set(feriados.map(f => f.data));
+  const minutos = Math.abs(reg.diferenca_minutos ?? 0);
+  const jornada = minutosJornada(turnoDaData(escala, reg.data));
+  const fixa = Number(func.diaria_fixa) > 0 ? Number(func.diaria_fixa) : null;
+  const diaria = fixa ?? valorDiaria(Number(func.salario_mensal) || 0, diasPrevistosNoMes(escala, fer, reg.data));
+  return { minutos, valor: jornada > 0 ? r2((diaria / jornada) * minutos) : 0 };
 }

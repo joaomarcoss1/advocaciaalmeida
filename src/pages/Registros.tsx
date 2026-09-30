@@ -117,6 +117,7 @@ export default function Registros() {
       const c = classificar(r.tipo, r.horario_previsto, hhmmParaMin(hora), config.ponto);
       patch.diferenca_minutos = c.diferenca;
       if (r.status !== 'manual' && r.status_aprovacao === 'aprovado') patch.status = c.status;
+      if (admin && r.analise && c.status !== 'atraso' && c.status !== 'saida_antecipada') patch.analise = null;   // deixou de ser atraso: sai da fila
     }
     try {
       await db.registros.update(r.id, patch);

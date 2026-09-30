@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Calculator, FileDown, FileSpreadsheet, Lock, LockOpen, Pencil, Plus, ReceiptText, Save, Trash2, Wallet } from 'lucide-react';
 import { Badge, Field, Kpi, Modal, PageHeader, useConfirm, useToast, Vazio } from '@/components/ui';
 import { useDados } from '@/context/Dados';
@@ -8,7 +9,7 @@ import { criarSelo } from '@/lib/selo';
 
 // PDF/Excel pesam ~1 MB: só são baixados quando o usuário exporta.
 const exportar = () => import('@/lib/export');
-import { periodosDoMes, valorHoraExtra, type FolhaCalculada } from '@/lib/folha';
+import { pendenciasDeAnalise, periodosDoMes, valorHoraExtra, type FolhaCalculada } from '@/lib/folha';
 import { calcularPeriodo, type LinhaFolha } from '@/lib/folhaLote';
 import { brl, minParaHoras } from '@/lib/format';
 import { minutosJornada } from '@/lib/ponto';
@@ -58,7 +59,9 @@ export default function Folha() {
     try { await db.folhas.upsertMany(abertas.map(l => paraSalvar(l, 'aberta'))); await auditar('Folha gerada', rotuloPeriodo); toast.ok(`Folha de ${abertas.length} funcionário(s) calculada.`); await recarregar(); }
     catch (e) { toast.erro((e as Error).message); }
   }
+  const pendAnalise = linhas.reduce((t, l) => t + pendenciasDeAnalise(l.efetivo.detalhe).total, 0);
   async function fechar() {
+    if (pendAnalise > 0) return toast.erro(`Há ${pendAnalise} item(ns) aguardando análise na aba Ocorrências. Aceite ou recuse antes de fechar a folha.`);
     if (emAndamento) return toast.erro('Só é possível fechar a folha depois do último dia do período.');
     if (!(await confirmar('Fechar a folha congela os valores calculados (faltas, descontos e ajustes) deste período. Continuar?', { rotulo: 'Fechar folha' }))) return;
     try { await db.folhas.upsertMany(abertas.map(l => paraSalvar(l, 'fechada'))); await auditar('Folha fechada', rotuloPeriodo); toast.ok('Folha fechada.'); await recarregar(); }
@@ -76,7 +79,8 @@ export default function Folha() {
   }
 
   const paraExportar = (): LinhaExport[] => linhas.map(l => ({ func: l.func, cargo: cargoDe(l.func.cargo_id), calc: l.efetivo, ajustes: ajustesDe(l.func.id) }));
-  const cab = { escritorio: config.escritorio, periodo: rotuloPeriodo };
+  const situacaoDoc = pendAnalise > 0 ? `Prévia — ${pendAnalise} item(ns) em análise` : emAndamento ? 'Prévia — período em andamento' : fechadas.length && !abertas.length ? 'Definitiva' : 'Conferência';
+  const cab = { escritorio: config.escritorio, periodo: rotuloPeriodo, situacao: situacaoDoc };
   /** Cabeçalho com selo de autenticidade (código + QR Code registrados no banco). */
   async function cabComSelo(tipo: 'folha' | 'holerite', titulo: string, resumo: Record<string, unknown>, conteudo: unknown) {
     return { ...cab, selo: await criarSelo(db, { tipo, titulo, periodo: rotuloPeriodo, resumo, conteudo }) };
@@ -188,6 +192,11 @@ export default function Folha() {
           <button className="btn gold" onClick={fechar} disabled={!abertas.length || emAndamento}><Lock size={18} />Fechar folha</button>
           <button className="btn ghost" onClick={pagar} disabled={!fechadas.length}><Wallet size={18} />Marcar como paga</button>
         </div>
+        {pendAnalise > 0 && (
+          <div className="demo-banner" style={{ marginTop: 14 }} role="status">
+            <strong>{pendAnalise} item(ns) aguardando análise do administrador.</strong> Os valores abaixo são provisórios (atestado em análise conta como falta; atraso em análise desconta só os minutos). <Link to="/painel/ocorrencias">Analisar em Ocorrências →</Link>
+          </div>
+        )}
         {emAndamento && <div className="demo-banner" style={{ marginTop: 14 }}><strong>Prévia:</strong> o período termina em {fmtData(per.fim)}. Dias que ainda não aconteceram contam como previstos e pagos; faltas só são apuradas para dias já passados.</div>}
       </div>
 
@@ -253,7 +262,9 @@ export default function Folha() {
               <div className="sum-line"><span>Dias previstos no período</span><span className="mono">{det.efetivo.dias_previstos}</span></div>
               <div className="sum-line"><span>Bruto do período</span><span className="mono">{brl(det.efetivo.valor_bruto)}</span></div>
               <div className="sum-line neg"><span>Faltas ({det.efetivo.faltas} × {brl(det.efetivo.valor_diaria)})</span><span className="mono">− {brl(det.efetivo.desconto_faltas)}</span></div>
-              {config.folha.descontar_atrasos && <div className="sum-line neg"><span>Atrasos ({minParaHoras(det.efetivo.minutos_atraso)})</span><span className="mono">− {brl(det.efetivo.desconto_atrasos)}</span></div>}
+              {(config.folha.descontar_atrasos || det.efetivo.desconto_atrasos > 0) && (
+                <div className="sum-line neg"><span>Atrasos / saídas antecipadas ({minParaHoras(det.efetivo.detalhe.reduce((t, d) => t + (d.descontado_min ?? 0), 0))} descontados)</span><span className="mono">− {brl(det.efetivo.desconto_atrasos)}</span></div>
+              )}
               <div className="sum-line"><span>Adicionais / horas extras</span><span className="mono">+ {brl(det.efetivo.adicionais)}</span></div>
               <div className="sum-line neg"><span>Descontos / adiantamentos</span><span className="mono">− {brl(det.efetivo.descontos)}</span></div>
               <div className="sum-line total"><span>Líquido</span><span className="mono">{brl(det.efetivo.valor_final)}</span></div>
@@ -289,7 +300,7 @@ export default function Folha() {
                   return (
                     <div className="dia-cell" key={d.data} style={{ gridTemplateColumns: '74px 1fr auto' }}>
                       <span className="mono">{fmtData(d.data).slice(0, 5)} <span className="muted">{['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][new Date(d.data + 'T12:00:00Z').getUTCDay()]}</span></span>
-                      <span><Badge tom={s.tom}>{s.rotulo}</Badge>{d.manual && <> <Badge tom="gold">ajustado</Badge></>}{(d.nota || d.incompleto) && <span className="muted" style={{ fontSize: '.82rem' }}> {d.nota ?? ''}{d.incompleto ? ' marcação incompleta' : ''}</span>}</span>
+                      <span><Badge tom={s.tom}>{s.rotulo}</Badge>{d.manual && <> <Badge tom="gold">ajustado</Badge></>}{d.analise && <> <Badge tom={d.analise === 'pendente' ? 'warn' : 'bad'}>{d.analise === 'pendente' ? 'atestado em análise' : 'atestado recusado'}</Badge></>}{d.atraso_min ? <> <Badge tom={d.atraso_analise === 'aceita' ? 'ok' : d.atraso_analise === 'pendente' ? 'warn' : 'bad'}>atraso {minParaHoras(d.atraso_min)}{d.atraso_analise === 'aceita' ? ' aceito' : d.atraso_analise === 'pendente' ? ' em análise' : d.atraso_analise === 'recusada' ? ' recusado' : ''}</Badge></> : null}{(d.nota || d.incompleto) && <span className="muted" style={{ fontSize: '.82rem' }}> {d.nota ?? ''}{d.incompleto ? ' marcação incompleta' : ''}</span>}</span>
                       {editavel ? (
                         <select className="select" style={{ minHeight: 34, padding: '4px 8px', fontSize: '.88rem', width: 122 }} aria-label={`Ajustar ${fmtData(d.data)}`} disabled={det.travada}
                           value={atual} onChange={e => definirDia(det, d.data, e.target.value)}>

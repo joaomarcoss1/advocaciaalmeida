@@ -131,3 +131,20 @@ supabase/      schema SQL + roteiro de teste das funções
 
 - Todo PDF (folha, demonstrativo, frequência, espelho) recebe um **código e um QR Code** no rodapé. A página pública `/verificar/<código>` confirma tipo, período, totais e o hash, sem dados pessoais (`supabase/migrations/0007_documentos.sql`).
 - Cada tela de tabela tem o botão **Imprimir** com layout próprio (cabeçalho do escritório, sem menus, sempre em tema claro).
+
+
+## Atestados, atrasos e análise do administrador
+
+- **Anexar PDF ou foto.** Na tela de ponto, quando o registro exige justificativa (atraso ou saída antecipada acima do limite), o funcionário pode anexar atestado/comprovante. Há também o botão **Enviar atestado / justificar uma falta** (período, motivo e o arquivo). Fotos são reduzidas no aparelho (JPEG até ~1600 px); PDF até 2 MB; até 4 arquivos por envio. Os arquivos ficam na tabela `anexos` (só o administrador lê).
+- **Aba Ocorrências → "Aguardando análise".** Cada atestado de falta e cada atraso/saída antecipada aparece com a justificativa, os anexos e o efeito de cada decisão. **Só o administrador decide** (gatilho no banco).
+  - *Atestado aceito*: a diária do dia é paga normalmente. *Recusado*: o dia é descontado (falta = 1 diária).
+  - *Atraso / saída antecipada aceito*: sem desconto. *Recusado*: desconta **somente o tempo** do atraso (valor da hora da jornada do dia), nunca a diária inteira.
+  - Enquanto está **em análise**, a folha usa desconto provisório (falta inteira para atestado; só os minutos para atraso), sinalizado nas telas e nos PDFs; **não é possível fechar a folha** com itens pendentes.
+- O funcionário acompanha o resultado ("em análise / aceito / recusado", com o motivo da recusa) na própria tela de ponto.
+- Testes: `supabase/tests_justificativas.sql` (anexos, permissões, decisão só do administrador) e `src/lib/folha.test.ts` (regras de desconto).
+
+## Folha de pagamento em PDF e Excel
+
+- **PDF (paisagem):** faixa azul com a logo dourada, competência/emissão/situação, cartões-resumo (funcionários, bruto, descontos, adicionais, total líquido), tabela por funcionário (cargo, salário, diária, faltas, desconto de faltas, atrasos, adicionais, total a receber, PIX e/ou conta), detalhamento de faltas/atrasos/abonos/ajustes com o efeito de cada um, assinaturas e QR Code de autenticidade.
+- **Excel:** quatro abas — *Resumo* (indicadores e totais com fórmulas), *Folha detalhada*, *Ocorrências* e *Pagamento* (lista com CPF, PIX, banco, agência, conta e colunas para conferência do pagamento).
+- O demonstrativo individual traz o mesmo cabeçalho, as ocorrências do período e os dados de pagamento.

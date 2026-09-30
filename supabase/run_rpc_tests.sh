@@ -33,5 +33,7 @@ $P -d almeida_test -f migrations/0006_seguranca.sql
 $P -d almeida_test -f migrations/0006_seguranca.sql   # idempotência
 $P -d almeida_test -f migrations/0007_documentos.sql
 $P -d almeida_test -f migrations/0007_documentos.sql   # idempotência
+$P -d almeida_test -f migrations/0008_justificativas.sql
+$P -d almeida_test -f migrations/0008_justificativas.sql   # idempotência
 $P -d almeida_test -f migrations/0004_ajustes_manuais.sql   # idempotência
-for f in tests_rpc.sql tests_usuarios.sql tests_folha.sql tests_geo.sql tests_seguranca.sql tests_documentos.sql; do psql -q -X -d almeida_test -f $f 2>&1 | sed 's/^psql:[^ ]* //' | grep -v '^CONTEXT\|^SQL statement\|^PL/pgSQL'; done
+for f in tests_rpc.sql tests_usuarios.sql tests_folha.sql tests_geo.sql tests_seguranca.sql tests_documentos.sql tests_justificativas.sql; do psql -q -X -d almeida_test -f $f 2>&1 | sed 's/^psql:[^ ]* //' | grep -v '^CONTEXT\|^SQL statement\|^PL/pgSQL'; done

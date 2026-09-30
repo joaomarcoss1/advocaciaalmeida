@@ -3,7 +3,8 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { mesclarConfig } from '@/lib/config';
 import type { Config, Escala, Folha, FuncionarioBasico, Usuario } from '@/lib/types';
 import { semAcento } from '@/lib/format';
-import type { Crud, Db, DocumentoVerificado, FolhasRepo, PessoaPonto, PontoResp, Sessao } from './db';
+import type { AnexoMeta } from '@/lib/types';
+import type { ArquivoAnexo, Crud, Db, DocumentoVerificado, FolhasRepo, PessoaPonto, PontoResp, Sessao } from './db';
 
 function falha(e: { message?: string } | null): never {
   const m = e?.message ?? 'Erro inesperado';
@@ -133,10 +134,23 @@ export function criarDbSupabase(url: string, key: string): Db {
       await testa('busca segura de funcionários na tela de ponto', sb.rpc('ponto_buscar', { p_termo: 'aaa' }));
       await testa('selo de autenticidade dos PDFs', sb.rpc('verificar_documento', { p_codigo: '0000-0000-0000' }));
       await testa('ajuste de dias e diária fixa', sb.from('ajustes_dia').select('id').limit(1));
+      await testa('atestados com anexo e análise de atrasos', sb.from('anexos').select('id').limit(1));
       return faltando;
     },
     usuarios,
     auditoria: crud('auditoria'),
+    anexos: {
+      async listar() {
+        const { data, error } = await sb.from('anexos').select('id,funcionario_id,ocorrencia_id,registro_id,nome,mime,tamanho,created_at').order('created_at', { ascending: false });
+        if (error) { if (funcaoAusente(error)) return []; falha(error); }
+        return (data ?? []) as AnexoMeta[];
+      },
+      async obter(id) {
+        const { data, error } = await sb.from('anexos').select('nome,mime,tamanho,conteudo').eq('id', id).single();
+        if (error) falha(error);
+        return data as ArquivoAnexo;
+      },
+    },
     documentos: {
       registrar: d => rpc<string>('registrar_documento', { p_tipo: d.tipo, p_titulo: d.titulo, p_periodo: d.periodo, p_resumo: d.resumo, p_hash: d.hash, p_codigo: d.codigo ?? null }),
       async verificar(codigo) {
@@ -207,6 +221,13 @@ export function criarDbSupabase(url: string, key: string): Db {
         p_func_id: a.funcionario_id, p_pin: a.pin, p_tipo: a.tipo, p_justificativa: a.justificativa ?? null, p_lat: a.lat ?? null, p_lng: a.lng ?? null,
       }) as ReturnType<Db['ponto']['bater']>,
       historico: (fid, pin, limite = 12) => rpc('ponto_historico', { p_func_id: fid, p_pin: pin, p_limite: limite }) as ReturnType<Db['ponto']['historico']>,
+      justificarAusencia: a => rpc('ponto_justificar_ausencia', {
+        p_func_id: a.funcionario_id, p_pin: a.pin, p_inicio: a.inicio, p_fim: a.fim, p_tipo: a.tipo, p_obs: a.observacao ?? null,
+      }) as ReturnType<Db['ponto']['justificarAusencia']>,
+      anexar: a => rpc('ponto_anexar', {
+        p_func_id: a.funcionario_id, p_pin: a.pin, p_registro_id: a.registro_id ?? null, p_ocorrencia_id: a.ocorrencia_id ?? null,
+        p_nome: a.arquivo.nome, p_mime: a.arquivo.mime, p_conteudo: a.arquivo.conteudo,
+      }) as ReturnType<Db['ponto']['anexar']>,
       retroativo: a => rpc('ponto_retroativo', {
         p_func_id: a.funcionario_id, p_pin: a.pin, p_data: a.data, p_tipo: a.tipo, p_hora: a.hora, p_justificativa: a.justificativa,
       }) as ReturnType<Db['ponto']['retroativo']>,

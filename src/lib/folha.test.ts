@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calcularFolha, diasPrevistosNoMes, periodosDoMes, valorDiaria, valorHoraExtra, type FolhaInput } from './folha';
+import { calcularFolha, diasPrevistosNoMes, pendenciasDeAnalise, periodosDoMes, valorDiaria, valorHoraExtra, type FolhaInput } from './folha';
 import { classificar, minutosJornada, proximoTipo, sequenciaDoDia } from './ponto';
 import { pascoa, feriadosPadrao } from './feriados';
 import type { AjusteDia, AjusteFolha, Config, Escala, Feriado, Funcionario, Ocorrencia, RegistroPonto, TurnoDia } from './types';
@@ -261,5 +261,85 @@ describe('feriados', () => {
     expect(f.find(x => x.nome === 'Sexta-feira Santa')?.data).toBe('2026-04-03');
     expect(f.find(x => x.nome === 'Corpus Christi')?.data).toBe('2026-06-04');
     expect(f.some(x => x.data === '2026-07-28' && x.tipo === 'estadual')).toBe(true);
+  });
+});
+
+describe('análise do administrador: atestados e atrasos', () => {
+  const dias = diasJunho();
+  const oc = (over: Partial<Ocorrencia>): Ocorrencia => ({ id: 'o1', funcionario_id: 'f1', data_inicio: dias[0], data_fim: dias[0], tipo: 'atestado', remunerado: true, observacao: null, created_at: '', ...over });
+  const semPrimeiro = dias.slice(1).map(d => reg(d));   // faltou no 1º dia
+
+  it('atestado aceito: o dia é pago normalmente', () => {
+    const r = calcularFolha(base({ registros: semPrimeiro, ocorrencias: [oc({ status_analise: 'aceita' })] }));
+    expect(r.faltas).toBe(0);
+    expect(r.dias_abonados).toBe(1);
+    expect(r.valor_final).toBe(2600);
+  });
+  it('ocorrência sem status (cadastro pelo painel) continua abonando', () => {
+    const r = calcularFolha(base({ registros: semPrimeiro, ocorrencias: [oc({})] }));
+    expect(r.faltas).toBe(0);
+    expect(r.valor_final).toBe(2600);
+  });
+  it('atestado recusado: desconta a diária da falta', () => {
+    const r = calcularFolha(base({ registros: semPrimeiro, ocorrencias: [oc({ status_analise: 'recusada' })] }));
+    expect(r.faltas).toBe(1);
+    expect(r.desconto_faltas).toBe(100);
+    expect(r.valor_final).toBe(2500);
+    expect(r.detalhe.find(x => x.data === dias[0])?.analise).toBe('recusada');
+  });
+  it('atestado em análise: desconto provisório e sinalizado', () => {
+    const r = calcularFolha(base({ registros: semPrimeiro, ocorrencias: [oc({ status_analise: 'pendente' })] }));
+    expect(r.faltas).toBe(1);
+    expect(r.valor_final).toBe(2500);
+    const d = r.detalhe.find(x => x.data === dias[0]);
+    expect(d?.analise).toBe('pendente');
+    expect(pendenciasDeAnalise(r.detalhe)).toEqual({ atestados: 1, atrasos: 0, total: 1 });
+  });
+  it('atestado recusado + outro aceito no mesmo dia: vale o aceito', () => {
+    const r = calcularFolha(base({ registros: semPrimeiro, ocorrencias: [oc({ id: 'a', status_analise: 'recusada' }), oc({ id: 'b', status_analise: 'aceita' })] }));
+    expect(r.faltas).toBe(0);
+  });
+
+  const atrasado = (analise: RegistroPonto['analise']) =>
+    dias.map((d, i) => reg(d, 'entrada', i === 0 ? { status: 'atraso', diferenca_minutos: 60, analise } : {}));
+  it('atraso aceito: não desconta nada', () => {
+    const r = calcularFolha(base({ registros: atrasado('aceita') }));
+    expect(r.desconto_atrasos).toBe(0);
+    expect(r.valor_final).toBe(2600);
+    expect(r.atrasos).toBe(1);
+  });
+  it('atraso recusado: desconta só os minutos (1h de 8h = 12,50), não a diária inteira', () => {
+    const r = calcularFolha(base({ registros: atrasado('recusada') }));
+    expect(r.desconto_atrasos).toBe(12.5);
+    expect(r.desconto_faltas).toBe(0);
+    expect(r.faltas).toBe(0);
+    expect(r.valor_final).toBe(2587.5);
+    const d = r.detalhe.find(x => x.data === dias[0]);
+    expect(d).toMatchObject({ atraso_min: 60, atraso_analise: 'recusada', descontado_min: 60 });
+  });
+  it('atraso em análise: desconto provisório só dos minutos', () => {
+    const r = calcularFolha(base({ registros: atrasado('pendente') }));
+    expect(r.desconto_atrasos).toBe(12.5);
+    expect(pendenciasDeAnalise(r.detalhe).atrasos).toBe(1);
+  });
+  it('atraso recusado desconta mesmo com a opção geral de descontar atrasos desligada', () => {
+    const r = calcularFolha(base({ registros: atrasado('recusada'), config: { ...config, folha: { ...config.folha, descontar_atrasos: false } } }));
+    expect(r.desconto_atrasos).toBe(12.5);
+  });
+  it('atraso aceito não desconta nem com a opção geral ligada', () => {
+    const r = calcularFolha(base({ registros: atrasado('aceita'), config: { ...config, folha: { ...config.folha, descontar_atrasos: true } } }));
+    expect(r.desconto_atrasos).toBe(0);
+  });
+  it('saída antecipada recusada também desconta só os minutos', () => {
+    const regs = dias.flatMap((d, i) => (i === 0 ? [reg(d, 'saida', { status: 'saida_antecipada', diferenca_minutos: -120, analise: 'recusada' })] : [reg(d)]));
+    const r = calcularFolha(base({ registros: regs }));
+    expect(r.desconto_atrasos).toBe(25); // 120 min × (100 ÷ 480)
+    expect(r.saidas_antecipadas).toBe(1);
+  });
+  it('atraso + falta no mesmo mês somam sem duplicar', () => {
+    const regs = atrasado('recusada').filter(x => x.data !== dias[1]);   // faltou no 2º dia
+    const r = calcularFolha(base({ registros: regs }));
+    expect(r.faltas).toBe(1);
+    expect(r.valor_final).toBe(2600 - 100 - 12.5);
   });
 });

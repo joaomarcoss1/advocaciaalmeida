@@ -5,8 +5,8 @@ import { gerarCodigoDocumento } from '@/lib/codigo';
 import { semAcento } from '@/lib/format';
 import { validarPin as validarFormatoPin, validarSenha } from '@/lib/seguranca';
 import { classificar, distanciaMetros, exigeJustificativa, previstoDoTipo, turnoDaData } from '@/lib/ponto';
-import type { Auditoria, Config, Escala, Folha, Funcionario, RegistroPonto, Usuario } from '@/lib/types';
-import type { BaterArgs, Crud, Db, DocumentoVerificado, FolhasRepo, MarcacaoHistorico, PontoErro, PontoResp, RetroativoArgs, Sessao } from './db';
+import type { AnexoMeta, Auditoria, Config, Escala, Folha, Funcionario, Ocorrencia, RegistroPonto, Usuario } from '@/lib/types';
+import type { AnexarArgs, ArquivoAnexo, BaterArgs, Crud, Db, DocumentoVerificado, FolhasRepo, JustificarAusenciaArgs, JustificativaFunc, MarcacaoHistorico, PontoErro, PontoResp, RetroativoArgs, Sessao } from './db';
 import { gerarSeed, hashSecreto } from './seed';
 
 const P = 'almeida.v1.';
@@ -36,6 +36,8 @@ function crud<T extends { id: string }>(tabela: string): Crud<T> {
   };
 }
 
+type AnexoLocal = AnexoMeta & { conteudo: string };
+
 export function criarDbLocal(): Db {
   const init = async () => {
     if (localStorage.getItem(P + 'seeded')) return;
@@ -45,6 +47,7 @@ export function criarDbLocal(): Db {
     localStorage.setItem(P + 'seeded', '1');
   };
   const registros = crud<RegistroPonto>('registros');
+  const ocorrencias = crud<Ocorrencia>('ocorrencias');
   const funcionarios = crud<Funcionario>('funcionarios');
   const usuarios = crud<Usuario>('usuarios');
   const folhas: FolhasRepo = {
@@ -125,6 +128,14 @@ export function criarDbLocal(): Db {
       },
     },
     auditoria: crud<Auditoria>('auditoria'),
+    anexos: {
+      async listar(): Promise<AnexoMeta[]> { return lerTabela<AnexoLocal>('anexos').map(({ conteudo: _c, ...meta }) => meta); },
+      async obter(id: string): Promise<ArquivoAnexo> {
+        const x = lerTabela<AnexoLocal>('anexos').find(a => a.id === id);
+        if (!x) throw new Error('Arquivo não encontrado.');
+        return { nome: x.nome, mime: x.mime, tamanho: x.tamanho, conteudo: x.conteudo };
+      },
+    },
     documentos: {
       // demonstração: os códigos ficam só neste navegador
       async registrar(d) {
@@ -198,7 +209,7 @@ export function criarDbLocal(): Db {
         const fer = lerTabela<{ data: string; nome: string }>('feriados').find(f => f.data === hoje);
         return { ponto: c.ponto, escritorio_nome: c.escritorio.nome, feriado: fer?.nome ?? null };
       },
-      async bater(a: BaterArgs): Promise<PontoResp<{ status: RegistroPonto['status']; diferenca_minutos: number; horario_real: string }>> {
+      async bater(a: BaterArgs): Promise<PontoResp<{ id: string; status: RegistroPonto['status']; diferenca_minutos: number; horario_real: string; analise?: RegistroPonto['analise'] }>> {
         const pv = await validarPin(a.funcionario_id, a.pin);
         if (pv !== 'ok') return err(pv);
         const cfg = cfgAtual().ponto;
@@ -214,13 +225,15 @@ export function criarDbLocal(): Db {
         const previsto = previstoDoTipo(turno, a.tipo);
         const c = classificar(a.tipo, previsto, agora.minutos, cfg);
         if (exigeJustificativa(c.status) && (a.justificativa ?? '').trim().length < 3) return err('JUSTIFICATIVA_OBRIGATORIA', c.status);
-        await registros.insert({
+        // atraso / saída antecipada acima do limite vai para análise do administrador
+        const analise = c.status === 'atraso' || c.status === 'saida_antecipada' ? ('pendente' as const) : null;
+        const novo = await registros.insert({
           funcionario_id: a.funcionario_id, data: agora.data, tipo: a.tipo, horario_previsto: previsto, horario_real: agora.iso,
           diferenca_minutos: c.diferenca, status: c.status, justificativa: a.justificativa?.trim() || null,
           latitude: a.lat ?? null, longitude: a.lng ?? null, status_aprovacao: 'aprovado', retroativo: false,
-          motivo_rejeicao: null, aprovado_por: null, aprovado_em: null,
+          motivo_rejeicao: null, aprovado_por: null, aprovado_em: null, analise,
         });
-        return { ok: true, status: c.status, diferenca_minutos: c.diferenca, horario_real: agora.iso };
+        return { ok: true, id: novo.id, status: c.status, diferenca_minutos: c.diferenca, horario_real: agora.iso, analise };
       },
       async historico(fid, pin, limite = 12) {
         const pv = await validarPin(fid, pin);
@@ -231,8 +244,57 @@ export function criarDbLocal(): Db {
           id: r.id, data: r.data, tipo: r.tipo, horario_previsto: r.horario_previsto, horario_real: r.horario_real,
           diferenca_minutos: r.diferenca_minutos, status: r.status, justificativa: r.justificativa,
           status_aprovacao: r.status_aprovacao, retroativo: r.retroativo, motivo_rejeicao: r.motivo_rejeicao,
+          analise: r.analise ?? null, motivo_decisao: r.motivo_decisao ?? null,
         }));
-        return { ok: true, registros: registrosOut };
+        const anexosTodos = lerTabela<AnexoLocal>('anexos');
+        const justificativas: JustificativaFunc[] = lerTabela<Ocorrencia>('ocorrencias')
+          .filter(o => o.funcionario_id === fid && o.origem === 'funcionario')
+          .sort((x, y) => y.created_at.localeCompare(x.created_at)).slice(0, 10)
+          .map(o => ({
+            id: o.id, data_inicio: o.data_inicio, data_fim: o.data_fim, tipo: o.tipo, status_analise: o.status_analise ?? 'aceita',
+            motivo_decisao: o.motivo_decisao ?? null, observacao: o.observacao, created_at: o.created_at, anexos: anexosTodos.filter(x => x.ocorrencia_id === o.id).length,
+          }));
+        return { ok: true, registros: registrosOut, justificativas };
+      },
+      async justificarAusencia(a: JustificarAusenciaArgs) {
+        const pv = await validarPin(a.funcionario_id, a.pin);
+        if (pv !== 'ok') return err(pv);
+        const hoje = agoraBR().data;
+        const minimo = new Date(Date.now() - 3 * 3600_000 - 45 * 86400_000).toISOString().slice(0, 10);
+        const maximo = new Date(Date.now() - 3 * 3600_000 + 30 * 86400_000).toISOString().slice(0, 10);
+        if (!['atestado', 'declaracao', 'audiencia_externa', 'outro'].includes(a.tipo)) return err('TIPO_INVALIDO');
+        if (!a.inicio || !a.fim || a.fim < a.inicio || (Date.parse(a.fim) - Date.parse(a.inicio)) / 86400_000 > 30 || a.fim > maximo) return err('PERIODO_INVALIDO');
+        if (a.inicio < minimo) return err('DATA_MUITO_ANTIGA');
+        const todas = lerTabela<Ocorrencia>('ocorrencias');
+        if (todas.some(o => o.funcionario_id === a.funcionario_id && (o.status_analise ?? 'aceita') !== 'recusada' && o.data_inicio <= a.fim && o.data_fim >= a.inicio)) return err('JA_REGISTRADO');
+        void hoje;
+        const nova = await ocorrencias.insert({
+          funcionario_id: a.funcionario_id, data_inicio: a.inicio, data_fim: a.fim, tipo: a.tipo, remunerado: true,
+          observacao: a.observacao?.trim() || null, origem: 'funcionario', status_analise: 'pendente', created_at: new Date().toISOString(),
+        });
+        return { ok: true, id: nova.id };
+      },
+      async anexar(a: AnexarArgs) {
+        const pv = await validarPin(a.funcionario_id, a.pin);
+        if (pv !== 'ok') return err(pv);
+        if (!['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(a.arquivo.mime) || a.arquivo.conteudo.length < 40 || a.arquivo.conteudo.length > 3_300_000) return err('ARQUIVO_INVALIDO');
+        const todos = lerTabela<AnexoLocal>('anexos');
+        let permitido = false, n = 0;
+        if (a.ocorrencia_id) {
+          const o = lerTabela<Ocorrencia>('ocorrencias').find(x => x.id === a.ocorrencia_id);
+          permitido = !!o && o.funcionario_id === a.funcionario_id && o.origem === 'funcionario' && o.status_analise === 'pendente';
+          n = todos.filter(x => x.ocorrencia_id === a.ocorrencia_id).length;
+        } else if (a.registro_id) {
+          const r = lerTabela<RegistroPonto>('registros').find(x => x.id === a.registro_id);
+          permitido = !!r && r.funcionario_id === a.funcionario_id && r.analise === 'pendente';
+          n = todos.filter(x => x.registro_id === a.registro_id).length;
+        }
+        if (!permitido) return err('NAO_ENCONTRADO');
+        if (n >= 4) return err('LIMITE_ANEXOS');
+        const id = crypto.randomUUID();
+        todos.push({ id, funcionario_id: a.funcionario_id, ocorrencia_id: a.ocorrencia_id ?? null, registro_id: a.registro_id ?? null, nome: a.arquivo.nome, mime: a.arquivo.mime, tamanho: a.arquivo.tamanho, conteudo: a.arquivo.conteudo, created_at: new Date().toISOString() });
+        try { localStorage.setItem(P + 'anexos', JSON.stringify(todos)); } catch { return err('ARQUIVO_INVALIDO', 'Sem espaço no navegador (modo demonstração)'); }
+        return { ok: true, id };
       },
       async retroativo(a: RetroativoArgs) {
         const pv = await validarPin(a.funcionario_id, a.pin);

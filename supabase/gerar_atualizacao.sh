@@ -16,6 +16,7 @@ cat <<'HDR'
 --   5) segurança: busca de funcionário no servidor, PIN de 6+ dígitos, bloqueio por origem,
 --      auditoria automática e imutável, senha forte, verificação em duas etapas no servidor
 --   6) autenticidade de documentos: código + QR Code nos PDFs
+--   7) atestados e atrasos: anexos (PDF/foto), análise do administrador (aceitar/recusar)
 -- =====================================================================
 
 -- 0) localiza o pgcrypto onde quer que ele esteja e garante o schema "extensions"
@@ -44,13 +45,15 @@ echo
 cat migrations/0006_seguranca.sql
 echo
 cat migrations/0007_documentos.sql
+echo
+cat migrations/0008_justificativas.sql
 cat <<'FTR'
 
 -- Atualiza o cache da API do Supabase para reconhecer as novas funções/tabelas
 notify pgrst, 'reload schema';
 
 -- Conferência: deve listar as funções de acesso e a cerca de GPS ativa (raio 900)
-select proname from pg_proc where pronamespace = 'public'::regnamespace and proname in ('criar_usuario','atualizar_usuario','redefinir_senha_usuario','remover_usuario','definir_pin','ponto_bater','ponto_buscar','registrar_documento','verificar_documento') order by 1;
+select proname from pg_proc where pronamespace = 'public'::regnamespace and proname in ('criar_usuario','atualizar_usuario','redefinir_senha_usuario','remover_usuario','definir_pin','ponto_bater','ponto_buscar','registrar_documento','verificar_documento','ponto_anexar','ponto_justificar_ausencia') order by 1;
 select dados -> 'ponto' ->> 'geofence_ativo' as cerca_ativa, dados -> 'ponto' ->> 'geofence_raio_m' as raio_m from public.configuracoes where id = 'global';
 FTR
 } > atualizacao_definitiva.sql

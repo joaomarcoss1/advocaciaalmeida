@@ -1,6 +1,6 @@
 import type {
   AjusteDia, AjusteFolha, Auditoria, Cargo, Config, ConfigPonto, Escala, Feriado, Folha, Funcionario, FuncionarioBasico,
-  Ocorrencia, Papel, RegistroPonto, TipoMarcacao, Usuario,
+  Ocorrencia, Papel, RegistroPonto, StatusAnalise, TipoMarcacao, TipoOcorrencia, Usuario, AnexoMeta,
 } from '@/lib/types';
 
 export interface Crud<T extends { id: string }> {
@@ -23,7 +23,8 @@ export interface ContextoPonto { ponto: ConfigPonto; escritorio_nome: string; fe
 
 export type PontoErro =
   | 'PIN_INVALIDO' | 'PIN_BLOQUEADO' | 'TIPO_INVALIDO' | 'GPS_OBRIGATORIO' | 'FORA_DA_AREA' | 'JA_REGISTRADO'
-  | 'JUSTIFICATIVA_OBRIGATORIA' | 'HORA_INVALIDA' | 'USE_PONTO_NORMAL' | 'DATA_MUITO_ANTIGA';
+  | 'JUSTIFICATIVA_OBRIGATORIA' | 'HORA_INVALIDA' | 'USE_PONTO_NORMAL' | 'DATA_MUITO_ANTIGA'
+  | 'ARQUIVO_INVALIDO' | 'LIMITE_ANEXOS' | 'NAO_ENCONTRADO' | 'PERIODO_INVALIDO';
 export type PontoResp<T = object> = ({ ok: true } & T) | { ok: false; erro: PontoErro; detalhe?: string | null };
 
 export const PONTO_ERRO_MSG: Record<PontoErro, string> = {
@@ -37,12 +38,26 @@ export const PONTO_ERRO_MSG: Record<PontoErro, string> = {
   HORA_INVALIDA: 'Horário inválido.',
   USE_PONTO_NORMAL: 'Para hoje, use o registro normal de ponto.',
   DATA_MUITO_ANTIGA: 'Só é possível solicitar ajustes dos últimos 45 dias.',
+  ARQUIVO_INVALIDO: 'Arquivo não aceito. Envie PDF ou foto (JPG, PNG) de até 2 MB.',
+  LIMITE_ANEXOS: 'Limite de 4 arquivos por envio.',
+  NAO_ENCONTRADO: 'Envio não encontrado ou já analisado pelo administrador.',
+  PERIODO_INVALIDO: 'Período inválido. Informe datas dos últimos 45 dias (ou até 30 dias à frente), com no máximo 30 dias.',
 };
+
+/** Arquivo pronto para envio: conteúdo em base64 (sem o prefixo data:). */
+export interface ArquivoAnexo { nome: string; mime: string; tamanho: number; conteudo: string }
+export interface JustificativaFunc {
+  id: string; data_inicio: string; data_fim: string; tipo: TipoOcorrencia; status_analise: StatusAnalise;
+  motivo_decisao: string | null; observacao: string | null; created_at: string; anexos: number;
+}
 
 export interface BaterArgs { funcionario_id: string; pin: string; tipo: TipoMarcacao; justificativa?: string; lat?: number | null; lng?: number | null }
 export interface RetroativoArgs { funcionario_id: string; pin: string; data: string; tipo: TipoMarcacao; hora: string; justificativa: string }
 export type MarcacaoHistorico = Pick<RegistroPonto,
-  'id' | 'data' | 'tipo' | 'horario_previsto' | 'horario_real' | 'diferenca_minutos' | 'status' | 'justificativa' | 'status_aprovacao' | 'retroativo' | 'motivo_rejeicao'>;
+  'id' | 'data' | 'tipo' | 'horario_previsto' | 'horario_real' | 'diferenca_minutos' | 'status' | 'justificativa' | 'status_aprovacao' | 'retroativo' | 'motivo_rejeicao'>
+  & { analise?: StatusAnalise | null; motivo_decisao?: string | null };
+export interface JustificarAusenciaArgs { funcionario_id: string; pin: string; inicio: string; fim: string; tipo: TipoOcorrencia; observacao?: string }
+export interface AnexarArgs { funcionario_id: string; pin: string; registro_id?: string; ocorrencia_id?: string; arquivo: ArquivoAnexo }
 
 export interface Db {
   modo: 'local' | 'supabase';
@@ -68,6 +83,11 @@ export interface Db {
     remover(id: string): Promise<void>;
   };
   auditoria: Crud<Auditoria>;
+  /** Arquivos anexados (só o administrador lê). `listar` traz só os metadados; `obter` traz o conteúdo. */
+  anexos: {
+    listar(): Promise<AnexoMeta[]>;
+    obter(id: string): Promise<ArquivoAnexo>;
+  };
   /** Autenticidade dos PDFs: cada documento emitido recebe um código e um QR Code verificável em /verificar. */
   documentos: {
     /** `codigo` é gerado no navegador; o registro é idempotente (repetir com o mesmo código/hash não duplica). */
@@ -89,8 +109,12 @@ export interface Db {
     buscar(termo: string): Promise<PessoaPonto[]>;
     escala(escalaId: string): Promise<Escala | null>;
     contexto(): Promise<ContextoPonto>;
-    bater(a: BaterArgs): Promise<PontoResp<{ status: RegistroPonto['status']; diferenca_minutos: number; horario_real: string }>>;
-    historico(funcionarioId: string, pin: string, limite?: number): Promise<PontoResp<{ registros: MarcacaoHistorico[] }>>;
+    bater(a: BaterArgs): Promise<PontoResp<{ id: string; status: RegistroPonto['status']; diferenca_minutos: number; horario_real: string; analise?: StatusAnalise | null }>>;
+    historico(funcionarioId: string, pin: string, limite?: number): Promise<PontoResp<{ registros: MarcacaoHistorico[]; justificativas: JustificativaFunc[] }>>;
+    /** Justificativa de ausência (atestado etc.): fica pendente até o administrador decidir. */
+    justificarAusencia(a: JustificarAusenciaArgs): Promise<PontoResp<{ id: string }>>;
+    /** Anexa PDF/foto a uma justificativa de falta ou a um atraso do próprio funcionário. */
+    anexar(a: AnexarArgs): Promise<PontoResp<{ id: string }>>;
     retroativo(a: RetroativoArgs): Promise<PontoResp>;
   };
 }
