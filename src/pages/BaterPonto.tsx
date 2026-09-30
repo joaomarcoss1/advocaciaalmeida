@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, Coffee, Delete, History, LogIn, LogOut, MapPin, RotateCcw, Search, Undo2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Coffee, Delete, History, Lock, LogIn, LogOut, MapPin, RotateCcw, Search, Undo2, UserSearch, X } from 'lucide-react';
 import marcaOuro from '@/assets/marca-ouro.png';
 import monograma from '@/assets/monograma-ouro.png';
 import { getDb, PONTO_ERRO_MSG, type ContextoPonto, type MarcacaoHistorico, type PessoaPonto } from '@/data/db';
@@ -16,11 +16,25 @@ const STATUS_TXT: Record<string, string> = {
 
 type Etapa = 'pessoa' | 'pin' | 'painel';
 
+function Etapas({ atual }: { atual: 1 | 2 | 3 }) {
+  const itens = ['Identificação', 'PIN', 'Registro'];
+  return (
+    <ol className="steps" aria-label="Etapas do registro">
+      {itens.map((rot, i) => (
+        <li key={rot} className={i + 1 < atual ? 'done' : i + 1 === atual ? 'on' : ''} aria-current={i + 1 === atual ? 'step' : undefined}>
+          <span className="n">{i + 1 < atual ? <Check size={13} strokeWidth={3} /> : i + 1}</span>{rot}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 export default function BaterPonto() {
   const [pessoas, setPessoas] = useState<PessoaPonto[]>([]);
   const [ctx, setCtx] = useState<ContextoPonto | null>(null);
   const [modo, setModo] = useState<'local' | 'supabase'>('local');
   const [busca, setBusca] = useState('');
+  const [tentou, setTentou] = useState(false);
   const [etapa, setEtapa] = useState<Etapa>('pessoa');
   const [pessoa, setPessoa] = useState<PessoaPonto | null>(null);
   const [escala, setEscala] = useState<Escala | null>(null);
@@ -45,7 +59,7 @@ export default function BaterPonto() {
 
   const voltar = useCallback(() => {
     setEtapa('pessoa'); setPessoa(null); setPin(''); setErro(''); setHist([]); setEscolha(null); setJust('');
-    setSucesso(null); setRetro(false); setRetroOk(false); setBusca('');
+    setSucesso(null); setRetro(false); setRetroOk(false); setBusca(''); setTentou(false);
   }, []);
 
   // Trava de segurança: volta à lista após 2 min sem interação no painel
@@ -67,12 +81,17 @@ export default function BaterPonto() {
     return () => window.removeEventListener('keydown', h);
   }, [etapa, voltar]);
 
-  const filtradas = useMemo(() => {
-    const q = semAcento(busca.trim());
-    // Com o banco real, a lista pública não aparece inteira: só depois de digitar o começo do nome.
-    if (modo === 'supabase' && q.length < 2) return [];
-    return pessoas.filter(p => !q || semAcento(p.nome).includes(q));
-  }, [pessoas, busca, modo]);
+  // A lista nunca aparece por inteira: só resultados de uma busca (mín. 2 letras), no máximo 6.
+  const termo = semAcento(busca.trim());
+  const filtradas = useMemo(
+    () => (termo.length < 2 ? [] : pessoas.filter(p => semAcento(p.nome).includes(termo)).slice(0, 6)),
+    [pessoas, termo],
+  );
+
+  function buscar() {
+    setTentou(true);
+    if (termo.length >= 2 && filtradas.length === 1) escolherPessoa(filtradas[0]);
+  }
 
   async function escolherPessoa(p: PessoaPonto) {
     setPessoa(p); setEtapa('pin'); setPin(''); setErro('');
@@ -170,24 +189,46 @@ export default function BaterPonto() {
 
       <section className="auth-side">
         <div className="auth-card">
+          <Etapas atual={etapa === 'pessoa' ? 1 : etapa === 'pin' ? 2 : 3} />
+
           {etapa === 'pessoa' && (
             <>
               <span className="eyebrow">Registro de ponto</span>
-              <h1>Quem está registrando?</h1>
-              <div style={{ position: 'relative', marginTop: 22 }}>
-                <Search size={18} style={{ position: 'absolute', left: 15, top: 14, color: 'var(--muted)' }} />
-                <input className="input" style={{ paddingLeft: 44, minHeight: 50 }} placeholder="Buscar seu nome…" value={busca} onChange={e => setBusca(e.target.value)} aria-label="Buscar seu nome" />
-              </div>
-              <div className="person-list">
-                {filtradas.map(p => (
-                  <button key={p.id} className="person" onClick={() => escolherPessoa(p)}>
-                    <span className="avatar">{iniciais(p.nome)}</span>
-                    <span className="grow"><strong>{p.nome}</strong><br /><span className="muted" style={{ fontSize: '.86rem' }}>{p.cargo_nome ?? 'Equipe'}</span></span>
-                    <ArrowRight size={18} color="var(--gold-600)" />
-                  </button>
-                ))}
-                {!filtradas.length && <div className="empty">{!pessoas.length ? 'Nenhum funcionário com PIN cadastrado.' : modo === 'supabase' && busca.trim().length < 2 ? 'Digite as primeiras letras do seu nome.' : 'Ninguém encontrado.'}</div>}
-              </div>
+              <h1>Identifique-se</h1>
+              <p className="page-sub" style={{ marginTop: 8 }}>Digite seu nome para localizar o seu cadastro.</p>
+              {modo === 'local' && <span className="badge gold" style={{ marginTop: 12 }}>Modo demonstração · dados fictícios</span>}
+
+              <form className="search" role="search" onSubmit={e => { e.preventDefault(); buscar(); }}>
+                <div className="search-field">
+                  <Search size={20} className="lead" />
+                  <input autoFocus autoComplete="off" spellCheck={false} placeholder="Nome ou sobrenome" value={busca}
+                    onChange={e => { setBusca(e.target.value); setTentou(false); }} aria-label="Digite seu nome" />
+                  {busca && <button type="button" className="clear" aria-label="Limpar busca" onClick={() => { setBusca(''); setTentou(false); }}><X size={17} /></button>}
+                </div>
+                <button className="btn gold" type="submit">Buscar</button>
+              </form>
+              <p className="hint" style={{ marginTop: 10 }}>{tentou && termo.length < 2 ? <span style={{ color: 'var(--bad)' }}>Digite ao menos 2 letras para buscar.</span> : 'Mínimo de 2 letras. Não é preciso digitar o nome completo.'}</p>
+
+              {termo.length >= 2 ? (
+                <div className="results" aria-live="polite">
+                  <div className="section-title" style={{ marginBottom: 10 }}>{filtradas.length ? `${filtradas.length} resultado(s)` : 'Nenhum resultado'}</div>
+                  {filtradas.map(p => (
+                    <div key={p.id} className="result">
+                      <span className="avatar">{iniciais(p.nome)}</span>
+                      <span className="grow"><strong>{p.nome}</strong><br /><span className="muted" style={{ fontSize: '.86rem' }}>{p.cargo_nome ?? 'Equipe'}</span></span>
+                      <button className="btn sm" onClick={() => escolherPessoa(p)}>Selecionar<ArrowRight size={15} /></button>
+                    </div>
+                  ))}
+                  {!filtradas.length && <div className="notice gold">Não encontramos esse nome. Confira a grafia ou procure a gerência para atualizar o seu cadastro.</div>}
+                </div>
+              ) : (
+                <div className="idle">
+                  <span className="idle-ic"><UserSearch size={26} strokeWidth={1.5} /></span>
+                  <strong>Encontre o seu cadastro</strong>
+                  <span className="muted">Depois da busca, você confirma com o seu PIN pessoal e registra a marcação.</span>
+                </div>
+              )}
+              <p className="secure"><Lock size={13} />Acesso protegido por PIN pessoal e intransferível.</p>
             </>
           )}
 
