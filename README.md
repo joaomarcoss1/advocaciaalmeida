@@ -45,7 +45,7 @@ Login de demonstração: `admin@almeidaadvocacia.com.br` / `almeida2026` e `gere
 ## Usando o Supabase (banco real)
 
 1. Use um projeto Supabase novo, só para este sistema (URL: `https://svasbxhxhvcranejwxku.supabase.co`).
-2. Abra **SQL Editor**, cole e execute, nesta ordem, `supabase/migrations/0001_almeida_schema.sql` e `supabase/migrations/0002_gestao_usuarios.sql` (tabelas, RLS, funções de ponto, cargos e escalas iniciais).
+2. Abra **SQL Editor**, cole e execute, nesta ordem, `supabase/migrations/0001_almeida_schema.sql` e `supabase/migrations/0002_gestao_usuarios.sql`. (Se o banco foi criado com a primeira versão do 0001, rode também `0003_corrige_search_path.sql`: no Supabase o `pgcrypto` fica no schema `extensions`.) (tabelas, RLS, funções de ponto, cargos e escalas iniciais).
 3. Se ainda não houver administrador, em **Authentication → Users → Add user** crie o e-mail e a senha. Depois, no SQL Editor:
    ```sql
    insert into public.perfis (id, nome, email, papel)
