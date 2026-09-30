@@ -19,6 +19,7 @@ type Etapa = 'pessoa' | 'pin' | 'painel';
 export default function BaterPonto() {
   const [pessoas, setPessoas] = useState<PessoaPonto[]>([]);
   const [ctx, setCtx] = useState<ContextoPonto | null>(null);
+  const [modo, setModo] = useState<'local' | 'supabase'>('local');
   const [busca, setBusca] = useState('');
   const [etapa, setEtapa] = useState<Etapa>('pessoa');
   const [pessoa, setPessoa] = useState<PessoaPonto | null>(null);
@@ -37,7 +38,7 @@ export default function BaterPonto() {
   const ocioso = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
-    getDb().then(async db => { setPessoas(await db.ponto.listarAtivos()); setCtx(await db.ponto.contexto()); });
+    getDb().then(async db => { setModo(db.modo); setPessoas(await db.ponto.listarAtivos()); setCtx(await db.ponto.contexto()); });
     const t = setInterval(() => setAgora(agoraBR()), 1000);
     return () => clearInterval(t);
   }, []);
@@ -68,8 +69,10 @@ export default function BaterPonto() {
 
   const filtradas = useMemo(() => {
     const q = semAcento(busca.trim());
+    // Com o banco real, a lista pública não aparece inteira: só depois de digitar o começo do nome.
+    if (modo === 'supabase' && q.length < 2) return [];
     return pessoas.filter(p => !q || semAcento(p.nome).includes(q));
-  }, [pessoas, busca]);
+  }, [pessoas, busca, modo]);
 
   async function escolherPessoa(p: PessoaPonto) {
     setPessoa(p); setEtapa('pin'); setPin(''); setErro('');
@@ -183,7 +186,7 @@ export default function BaterPonto() {
                     <ArrowRight size={18} color="var(--gold-600)" />
                   </button>
                 ))}
-                {!filtradas.length && <div className="empty">{pessoas.length ? 'Ninguém encontrado.' : 'Nenhum funcionário com PIN cadastrado.'}</div>}
+                {!filtradas.length && <div className="empty">{!pessoas.length ? 'Nenhum funcionário com PIN cadastrado.' : modo === 'supabase' && busca.trim().length < 2 ? 'Digite as primeiras letras do seu nome.' : 'Ninguém encontrado.'}</div>}
               </div>
             </>
           )}

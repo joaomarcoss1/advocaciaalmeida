@@ -62,6 +62,12 @@ Login de demonstração: `admin@almeidaadvocacia.com.br` / `almeida2026` e `gere
 * Gerência lê ponto/ocorrências por RLS e a equipe pela função `equipe()`, que omite salário, CPF e dados bancários.
 * Teste do SQL: `supabase/run_rpc_tests.sh` sobe o schema num Postgres local (com um stub do schema `auth`) e exercita PIN, bloqueio, atraso, duplicidade, retroativo e permissões de `anon`/gerente/admin.
 
+## Produção
+
+* **Dados da equipe não ficam no Git.** CPFs, PINs e o usuário master são criados por um SQL privado, executado uma única vez no SQL Editor do Supabase (schema + cadastro + acesso administrativo). Nunca versione esse arquivo.
+* Com o Supabase ligado, a tela pública de ponto só mostra nomes depois que o funcionário digita as primeiras letras, e a marcação exige o PIN.
+* Depois do primeiro login, troque a senha do administrador master e cadastre o e-mail real do responsável em *Configurações → Acessos*.
+
 ## Deploy (Vercel)
 
 Importe o repositório, framework **Vite**, e configure as duas variáveis `VITE_SUPABASE_*`. O `vercel.json` já faz o redirecionamento de rotas (SPA).
