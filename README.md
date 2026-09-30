@@ -44,8 +44,8 @@ Login de demonstração: `admin@almeidaadvocacia.com.br` / `almeida2026` e `gere
 
 ## Usando o Supabase (banco real)
 
-1. Crie o projeto no Supabase (novo, só para este sistema).
-2. Abra **SQL Editor** e execute o arquivo `supabase/migrations/0001_almeida_schema.sql` (tabelas, RLS, funções de ponto, cargos e escalas iniciais).
+1. Use um projeto Supabase novo, só para este sistema (URL: `https://svasbxhxhvcranejwxku.supabase.co`).
+2. Abra **SQL Editor**, cole todo o conteúdo de `supabase/migrations/0001_almeida_schema.sql` e execute (tabelas, RLS, funções de ponto, cargos e escalas iniciais).
 3. Em **Authentication → Users → Add user**, crie o e-mail e a senha do administrador. Depois, no SQL Editor:
    ```sql
    insert into public.perfis (id, nome, email, papel)
