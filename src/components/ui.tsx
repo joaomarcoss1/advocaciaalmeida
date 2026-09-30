@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { X } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 
 /* ---------- Toast ---------- */
 interface ToastCtx { ok(m: string): void; erro(m: string): void }
@@ -79,10 +80,17 @@ export function useConfirm() {
 }
 
 /* ---------- Blocos ---------- */
+const EYEBROW: Record<string, string> = {
+  '/painel': 'Visão geral', '/painel/gerencia': 'Gerência', '/painel/funcionarios': 'Equipe', '/painel/cargos': 'Equipe', '/painel/escalas': 'Equipe',
+  '/painel/ponto': 'Frequência', '/painel/ocorrencias': 'Frequência', '/painel/feriados': 'Frequência', '/painel/folha': 'Financeiro',
+  '/painel/relatorios': 'Financeiro', '/painel/configuracoes': 'Sistema',
+};
 export function PageHeader({ titulo, sub, children }: { titulo: string; sub?: ReactNode; children?: ReactNode }) {
+  const { pathname } = useLocation();
   return (
-    <div className="row between" style={{ marginBottom: 22, alignItems: 'flex-end' }}>
+    <div className="page-head">
       <div>
+        <span className="eyebrow">{EYEBROW[pathname] ?? 'Almeida Advocacia'}</span>
         <h1 className="page-title">{titulo}</h1>
         {sub && <p className="page-sub">{sub}</p>}
       </div>
@@ -99,10 +107,10 @@ export function Field({ label, dica, children }: { label: string; dica?: string;
     </div>
   );
 }
-export function Kpi({ label, valor, dica, alerta }: { label: string; valor: ReactNode; dica?: ReactNode; alerta?: boolean }) {
+export function Kpi({ label, valor, dica, alerta, icone }: { label: string; valor: ReactNode; dica?: ReactNode; alerta?: boolean; icone?: ReactNode }) {
   return (
     <div className={`card kpi ${alerta ? 'alert' : ''}`}>
-      <div className="label">{label}</div>
+      <div className="top"><div className="label">{label}</div>{icone && <div className="ico">{icone}</div>}</div>
       <div className="value">{valor}</div>
       {dica && <div className="hint">{dica}</div>}
     </div>
