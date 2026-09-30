@@ -3,7 +3,7 @@ import { getDb, type Db } from '@/data/db';
 import { CONFIG_PADRAO } from '@/lib/config';
 import { agoraBR, type AgoraBR } from '@/lib/datetime';
 import type {
-  AjusteFolha, Cargo, Config, Escala, Feriado, Folha, Funcionario, Ocorrencia, RegistroPonto, Usuario,
+  AjusteDia, AjusteFolha, Cargo, Config, Escala, Feriado, Folha, Funcionario, Ocorrencia, RegistroPonto, Usuario,
 } from '@/lib/types';
 import { useAuth } from './Auth';
 
@@ -11,8 +11,10 @@ interface DadosCtx {
   db: Db;
   carregando: boolean;
   cargos: Cargo[]; escalas: Escala[]; funcionarios: Funcionario[]; registros: RegistroPonto[]; ocorrencias: Ocorrencia[];
-  feriados: Feriado[]; ajustes: AjusteFolha[]; folhas: Folha[]; usuarios: Usuario[]; config: Config;
+  feriados: Feriado[]; ajustes: AjusteFolha[]; ajustesDia: AjusteDia[]; folhas: Folha[]; usuarios: Usuario[]; config: Config;
   agora: AgoraBR;
+  /** true quando o banco ainda não tem as tabelas/colunas da última atualização. */
+  atualizacaoPendente: boolean;
   recarregar(): Promise<void>;
   auditar(acao: string, detalhe?: string): Promise<void>;
 }
@@ -24,10 +26,11 @@ export function DadosProvider({ children }: { children: ReactNode }) {
   const [carregando, setCarregando] = useState(true);
   const [d, setD] = useState({
     cargos: [] as Cargo[], escalas: [] as Escala[], funcionarios: [] as Funcionario[], registros: [] as RegistroPonto[],
-    ocorrencias: [] as Ocorrencia[], feriados: [] as Feriado[], ajustes: [] as AjusteFolha[], folhas: [] as Folha[],
+    ocorrencias: [] as Ocorrencia[], feriados: [] as Feriado[], ajustes: [] as AjusteFolha[], ajustesDia: [] as AjusteDia[], folhas: [] as Folha[],
     usuarios: [] as Usuario[], config: CONFIG_PADRAO,
   });
   const [agora, setAgora] = useState(agoraBR());
+  const [atualizacaoPendente, setAtualizacaoPendente] = useState(false);
 
   useEffect(() => { getDb().then(setDb); }, []);
   useEffect(() => { const t = setInterval(() => setAgora(agoraBR()), 30_000); return () => clearInterval(t); }, []);
@@ -35,7 +38,10 @@ export function DadosProvider({ children }: { children: ReactNode }) {
   const recarregar = useCallback(async () => {
     if (!db || !sessao) return;
     const admin = sessao.papel === 'admin';
-    const [cargos, escalas, func, registros, ocorrencias, feriados, config, ajustes, folhas, usuarios] = await Promise.all([
+    // Tabela opcional (chegou numa atualização do banco): se ainda não existir, o painel segue funcionando.
+    let semAtualizacao = false;
+    const ajustesDiaP = db.ajustesDia.list().catch(() => { semAtualizacao = true; return [] as AjusteDia[]; });
+    const [cargos, escalas, func, registros, ocorrencias, feriados, config, ajustes, folhas, usuarios, ajustesDia] = await Promise.all([
       db.cargos.list(), db.escalas.list(),
       admin
         ? db.funcionarios.list()
@@ -47,8 +53,10 @@ export function DadosProvider({ children }: { children: ReactNode }) {
       admin ? db.ajustes.list() : Promise.resolve([] as AjusteFolha[]),
       admin ? db.folhas.list() : Promise.resolve([] as Folha[]),
       admin ? db.usuarios.list() : Promise.resolve([] as Usuario[]),
+      ajustesDiaP,
     ]);
-    setD({ cargos, escalas, funcionarios: func, registros, ocorrencias, feriados, config, ajustes, folhas, usuarios });
+    setAtualizacaoPendente(semAtualizacao);
+    setD({ cargos, escalas, funcionarios: func, registros, ocorrencias, feriados, config, ajustes, ajustesDia, folhas, usuarios });
     setAgora(agoraBR());
   }, [db, sessao]);
 
@@ -63,7 +71,7 @@ export function DadosProvider({ children }: { children: ReactNode }) {
     try { await db.auditoria.insert({ usuario: sessao.nome, acao, detalhe }); } catch { /* auditoria não deve travar a ação */ }
   }, [db, sessao]);
 
-  const valor = useMemo(() => (db ? { db, carregando, ...d, agora, recarregar, auditar } : null), [db, carregando, d, agora, recarregar, auditar]);
+  const valor = useMemo(() => (db ? { db, carregando, ...d, agora, atualizacaoPendente, recarregar, auditar } : null), [db, carregando, d, agora, atualizacaoPendente, recarregar, auditar]);
   if (!valor) return null;
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }

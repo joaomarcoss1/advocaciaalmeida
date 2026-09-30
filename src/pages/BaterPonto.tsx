@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, Coffee, Delete, History, Lock, LogIn, LogOut, MapPin, RotateCcw, Search, Undo2, UserSearch, X } from 'lucide-react';
-import marcaOuro from '@/assets/marca-ouro.png';
+import Stage from '@/components/Stage';
 import { getDb, PONTO_ERRO_MSG, type ContextoPonto, type MarcacaoHistorico, type PessoaPonto } from '@/data/db';
 import { addDays, agoraBR, fmtData, isoParaBR, type AgoraBR } from '@/lib/datetime';
 import { iniciais, minParaHoras, semAcento } from '@/lib/format';
@@ -175,19 +175,18 @@ export default function BaterPonto() {
 
   return (
     <div className="auth">
-      <section className="stage">
-        <img className="stage-logo" src={marcaOuro} alt="Almeida Advocacia & Consultoria" />
-        <div className="stage-clock" aria-label={`Hora atual ${agora.hhmm}`}>
-          <div className="hora">{hh}<span className="sep">:</span>{mm}</div>
+      <Stage>
+        <div aria-label={`Hora atual ${agora.hhmm}`}>
+          <div className="hora"><span key={hh} className="tick">{hh}</span><span className="sep">:</span><span key={mm} className="tick">{mm}</span></div>
           <div className="dia">{dataExtenso}</div>
           {ctx?.feriado && <span className="feriado">Feriado · {ctx.feriado}</span>}
         </div>
-        <div className="stage-foot">Codó · Maranhão</div>
-      </section>
+      </Stage>
 
       <section className="auth-side">
         <div className="auth-card">
           <Etapas atual={etapa === 'pessoa' ? 1 : etapa === 'pin' ? 2 : 3} />
+          <div key={etapa} className="passo">
 
           {etapa === 'pessoa' && (
             <>
@@ -359,6 +358,7 @@ export default function BaterPonto() {
               </div>
             </div>
           )}
+          </div>
         </div>
         <Link to="/entrar" className="auth-link">Acesso administrativo <ArrowRight size={15} /></Link>
       </section>

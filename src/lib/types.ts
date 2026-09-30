@@ -61,6 +61,8 @@ export interface Funcionario {
   agencia: string | null;
   conta: string | null;
   tipo_conta: string | null;
+  /** Diária fixa (opcional). Se preenchida, substitui o cálculo salário ÷ dias previstos. */
+  diaria_fixa?: number | null;
   tem_pin: boolean;
   /** Somente no modo local. No Supabase o hash fica em tabela separada, nunca vai ao navegador. */
   pin_hash?: string | null;
@@ -141,6 +143,17 @@ export interface Feriado {
   tipo: TipoFeriado;
 }
 
+/** Ajuste manual da situação de um dia na folha (substitui a apuração automática do ponto). */
+export type SituacaoManual = 'presente' | 'abonado' | 'falta';
+export interface AjusteDia {
+  id: string;
+  funcionario_id: string;
+  data: string;
+  situacao: SituacaoManual;
+  observacao: string | null;
+  created_at: string;
+}
+
 export type TipoAjuste = 'adicional' | 'hora_extra' | 'desconto' | 'adiantamento';
 export const AJUSTE_LABEL: Record<TipoAjuste, string> = {
   adicional: 'Adicional / bônus',
@@ -170,6 +183,8 @@ export interface DetalheDia {
   /** Observação curta exibida no espelho (ex.: tipo de abono). */
   nota?: string;
   incompleto?: boolean;
+  /** Situação definida manualmente (ajuste de dia). */
+  manual?: boolean;
   minutos_atraso?: number;
 }
 

@@ -6,15 +6,15 @@ import { brl, iniciais, mascaraCpf, mascaraTelefone, semAcento } from '@/lib/for
 import { VINCULO_LABEL, type Funcionario, type Vinculo } from '@/lib/types';
 import { fmtData } from '@/lib/datetime';
 
-type Form = Partial<Funcionario> & { salarioTxt?: string };
+type Form = Partial<Funcionario> & { salarioTxt?: string; diariaTxt?: string };
 const vazio = (hoje: string): Form => ({
-  nome: '', cpf: '', email: '', telefone: '', cargo_id: null, escala_id: null, vinculo: 'clt', salarioTxt: '', data_admissao: hoje,
+  nome: '', cpf: '', email: '', telefone: '', cargo_id: null, escala_id: null, vinculo: 'clt', salarioTxt: '', diariaTxt: '', data_admissao: hoje,
   oab: '', pix: '', banco: '', agencia: '', conta: '', tipo_conta: 'Corrente', observacoes: '', ativo: true,
 });
 const nulo = (v?: string | null) => (v && v.trim() ? v.trim() : null);
 
 export default function Funcionarios() {
-  const { db, funcionarios, cargos, escalas, registros, agora, recarregar, auditar } = useDados();
+  const { db, funcionarios, cargos, escalas, registros, agora, atualizacaoPendente, recarregar, auditar } = useDados();
   const toast = useToast();
   const confirmar = useConfirm();
   const [busca, setBusca] = useState('');
@@ -41,6 +41,9 @@ export default function Funcionarios() {
     if (salario <= 0) return toast.erro('Informe o salário mensal — é a base do cálculo da diária.');
     if (!ed.escala_id) return toast.erro('Escolha a escala de trabalho — sem ela não há dias previstos para calcular a diária.');
     if (!ed.data_admissao) return toast.erro('Informe a data de admissão.');
+    const diaria = (ed.diariaTxt ?? '').trim() === '' ? null : Number(String(ed.diariaTxt).replace(/\./g, '').replace(',', '.'));
+    if (diaria !== null && !(diaria >= 0)) return toast.erro('Diária fixa inválida. Deixe em branco para usar o cálculo automático.');
+    if (diaria !== null && atualizacaoPendente && db.modo === 'supabase') return toast.erro('O banco ainda não tem o campo de diária fixa. Rode o arquivo atualizacao_definitiva.sql no Supabase.');
     try {
       const dados: Partial<Funcionario> = {
         nome: ed.nome.trim(), cpf: nulo(ed.cpf), email: nulo(ed.email), telefone: nulo(ed.telefone), cargo_id: ed.cargo_id || null,
@@ -48,6 +51,7 @@ export default function Funcionarios() {
         data_desligamento: ed.data_desligamento || null, oab: nulo(ed.oab), pix: nulo(ed.pix), banco: nulo(ed.banco), agencia: nulo(ed.agencia),
         conta: nulo(ed.conta), tipo_conta: nulo(ed.tipo_conta), observacoes: nulo(ed.observacoes), ativo: ed.ativo ?? true,
       };
+      if (!atualizacaoPendente || db.modo === 'local') dados.diaria_fixa = diaria;
       if (ed.id) await db.funcionarios.update(ed.id, dados);
       else await db.funcionarios.insert({ ...dados, tem_pin: false });
       await auditar(ed.id ? 'Funcionário editado' : 'Funcionário criado', dados.nome);
@@ -115,7 +119,7 @@ export default function Funcionarios() {
                   <td>{f.ativo ? <Badge tom="ok">Ativo</Badge> : <Badge tom="mute">Desligado {fmtData(f.data_desligamento)}</Badge>}</td>
                   <td className="right" style={{ whiteSpace: 'nowrap' }}>
                     <button className="icon-btn" title="Definir PIN" aria-label={`Definir PIN de ${f.nome}`} onClick={() => { setPinDe(f); setPin(''); }}><KeyRound size={17} /></button>
-                    <button className="icon-btn" title="Editar" aria-label={`Editar ${f.nome}`} onClick={() => setEd({ ...f, salarioTxt: String(f.salario_mensal).replace('.', ',') })}><Pencil size={17} /></button>
+                    <button className="icon-btn" title="Editar" aria-label={`Editar ${f.nome}`} onClick={() => setEd({ ...f, salarioTxt: String(f.salario_mensal).replace('.', ','), diariaTxt: f.diaria_fixa ? String(f.diaria_fixa).replace('.', ',') : '' })}><Pencil size={17} /></button>
                     <button className="icon-btn" title={f.ativo ? 'Desligar' : 'Reativar'} aria-label={f.ativo ? `Desligar ${f.nome}` : `Reativar ${f.nome}`} onClick={() => alternarAtivo(f)}>{f.ativo ? <UserMinus size={17} /> : <UserPlus size={17} />}</button>
                     <button className="icon-btn" title="Excluir" aria-label={`Excluir ${f.nome}`} onClick={() => excluir(f)}><Trash2 size={17} /></button>
                   </td>
@@ -169,6 +173,7 @@ export default function Funcionarios() {
                 </select>
               </Field>
               <Field label="Salário mensal (R$)" dica="Base do cálculo da diária."><input className="input" inputMode="decimal" value={ed.salarioTxt ?? ''} onChange={e => set({ salarioTxt: e.target.value })} placeholder="0,00" /></Field>
+              <Field label="Diária fixa (R$)" dica="Opcional. Se preenchida, substitui salário ÷ dias previstos."><input className="input" inputMode="decimal" value={ed.diariaTxt ?? ''} onChange={e => set({ diariaTxt: e.target.value })} placeholder="automática" /></Field>
               <Field label="Admissão"><input className="input" type="date" value={ed.data_admissao ?? ''} onChange={e => set({ data_admissao: e.target.value })} /></Field>
               <Field label="Desligamento"><input className="input" type="date" value={ed.data_desligamento ?? ''} onChange={e => set({ data_desligamento: e.target.value || null })} /></Field>
             </div>

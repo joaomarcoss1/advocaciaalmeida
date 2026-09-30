@@ -88,6 +88,7 @@ export function criarDbLocal(): Db {
     ocorrencias: crud('ocorrencias'),
     feriados: crud('feriados'),
     ajustes: crud('ajustes'),
+    ajustesDia: crud('ajustes_dia'),
     folhas,
     usuarios: { list: () => usuarios.list() },
     acessos: {

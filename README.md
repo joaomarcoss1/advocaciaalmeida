@@ -45,7 +45,7 @@ Login de demonstração: `admin@almeidaadvocacia.com.br` / `almeida2026` e `gere
 ## Usando o Supabase (banco real)
 
 1. Use um projeto Supabase novo, só para este sistema (URL: `https://svasbxhxhvcranejwxku.supabase.co`).
-2. Abra **SQL Editor**, cole e execute, nesta ordem, `supabase/migrations/0001_almeida_schema.sql` e `supabase/migrations/0002_gestao_usuarios.sql`. (Se o banco foi criado com a primeira versão do 0001, rode também `0003_corrige_search_path.sql`: no Supabase o `pgcrypto` fica no schema `extensions`.) (tabelas, RLS, funções de ponto, cargos e escalas iniciais).
+2. Abra **SQL Editor**, cole e execute, nesta ordem, `supabase/migrations/0001_almeida_schema.sql`, `0002_gestao_usuarios.sql` e `0004_ajustes_manuais.sql` (tabelas, RLS, funções de ponto, cargos e escalas iniciais, gestão de acessos, diária fixa e ajuste de dias). Em bancos criados com a primeira versão do 0001, rode antes `0003_corrige_search_path.sql` (corrige o erro `function gen_salt(unknown) does not exist` ao salvar PIN: no Supabase o `pgcrypto` fica no schema `extensions`) ou use o arquivo único `supabase/atualizacao_definitiva.sql`, que aplica 0003 + 0002 + 0004 sem apagar dados e pode ser repetido.
 3. Se ainda não houver administrador, em **Authentication → Users → Add user** crie o e-mail e a senha. Depois, no SQL Editor:
    ```sql
    insert into public.perfis (id, nome, email, papel)
@@ -64,7 +64,7 @@ Login de demonstração: `admin@almeidaadvocacia.com.br` / `almeida2026` e `gere
 
 ## Acessos ao painel
 
-*Configurações → Acessos* (só administrador): criar usuário com e-mail e senha, escolher **Administrador** ou **Gerência**, ativar/desativar, redefinir senha e remover. Sempre sobra pelo menos um administrador ativo, e ninguém remove o próprio acesso. No Supabase isso é feito pelas funções `criar_usuario`, `atualizar_usuario`, `redefinir_senha_usuario` e `remover_usuario` (`supabase/migrations/0002_gestao_usuarios.sql`), que só respondem a administradores.
+*Configurações → Acessos* (só administrador): criar usuário com e-mail e senha, escolher **Administrador master** ou **Gerência**, ativar/desativar, redefinir senha e remover. Sempre sobra pelo menos um administrador ativo, e ninguém remove o próprio acesso. No Supabase isso é feito pelas funções `criar_usuario`, `atualizar_usuario`, `redefinir_senha_usuario` e `remover_usuario` (`supabase/migrations/0002_gestao_usuarios.sql`), que só respondem a administradores.
 
 ## Produção
 
@@ -92,3 +92,12 @@ src/data       camada de dados: local (demo) e supabase, mesma interface
 src/pages      telas
 supabase/      schema SQL + roteiro de teste das funções
 ```
+
+
+## Edição manual e conferência da folha
+
+- **Funcionários → editar**: salário, cargo, escala, dados de PIX/conta e *diária fixa* (opcional; substitui salário ÷ dias previstos).
+- **Folha → Detalhes**: cada dia pode ser marcado como *Presente*, *Abonado* ou *Falta* (sobrepõe o ponto; "Automático" volta à apuração). Também é possível corrigir salário e diária, lançar/editar/remover ajustes (adicionais, horas extras, descontos) e reabrir folhas fechadas.
+- **Registros de ponto**: lápis para corrigir o horário de uma marcação (com motivo, gravado na auditoria); administrador também pode excluir e lançar marcações.
+- **Feriados**, **Escalas**, **Cargos** e **Ocorrências**: todos editáveis.
+- **Exportações da folha** (PDF e Excel): funcionário, cargo, salário, diária, dias trabalhados/previstos, faltas, desconto de faltas, atrasos, adicionais, descontos, total a receber e PIX e/ou conta bancária. O demonstrativo individual também traz os dados de pagamento.

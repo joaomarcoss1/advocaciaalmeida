@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
+import { travarRolagem } from '@/lib/rolagem';
 
 /* ---------- Toast ---------- */
 interface ToastCtx { ok(m: string): void; erro(m: string): void }
@@ -36,9 +37,8 @@ export function Modal({ titulo, onClose, children, rodape, largo }: {
   useEffect(() => {
     const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     document.addEventListener('keydown', h);
-    const antes = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => { document.removeEventListener('keydown', h); document.body.style.overflow = antes; };
+    const liberar = travarRolagem();
+    return () => { document.removeEventListener('keydown', h); liberar(); };
   }, [onClose]);
   return (
     <div className="overlay" onMouseDown={e => e.target === e.currentTarget && onClose()}>

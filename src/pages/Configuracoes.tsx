@@ -126,7 +126,7 @@ export default function Configuracoes() {
 
           {aba === 'acessos' && (<>
             <div className="row between">
-              <p className="muted" style={{ maxWidth: '60ch' }}>Quem pode entrar no painel. <strong>Administrador</strong> tem acesso total, inclusive a salários, folha e a esta tela. <strong>Gerência</strong> acompanha ponto, escalas e ocorrências, sem salários.</p>
+              <p className="muted" style={{ maxWidth: '60ch' }}>Quem pode entrar no painel. <strong>Administrador master</strong> tem acesso total, inclusive a salários, folha e a esta tela, e pode promover outros usuários a master. <strong>Gerência</strong> acompanha ponto, escalas e ocorrências, sem salários.</p>
               <button className="btn" onClick={() => { setNovo({ nome: '', email: '', papel: 'admin', senha: '' }); setVerSenha(false); }}>Novo acesso</button>
             </div>
             <div className="card" style={{ overflow: 'hidden' }}>
@@ -138,7 +138,7 @@ export default function Configuracoes() {
                     <td className="muted">{u.email}</td>
                     <td>
                       <select className="select" style={{ minHeight: 38, maxWidth: 170 }} value={u.papel} aria-label={`Papel de ${u.nome}`} onChange={e => salvarAcesso(u, { papel: e.target.value as Papel })}>
-                        <option value="admin">Administrador</option><option value="gerente">Gerência</option>
+                        <option value="admin">Administrador master</option><option value="gerente">Gerência</option>
                       </select>
                     </td>
                     <td><button className={`btn sm ${u.ativo ? 'ghost' : ''}`} onClick={() => salvarAcesso(u, { ativo: !u.ativo })}>{u.ativo ? 'Ativo' : 'Inativo'}</button></td>
@@ -171,7 +171,7 @@ export default function Configuracoes() {
             <Field label="E-mail (será o login)"><input className="input" type="email" inputMode="email" autoCapitalize="none" value={novo.email} onChange={e => setNovo({ ...novo, email: e.target.value })} /></Field>
             <div className="field">
               <label>Papel</label>
-              <label className={`role-opt ${novo.papel === 'admin' ? 'on' : ''}`}><input type="radio" name="papel" checked={novo.papel === 'admin'} onChange={() => setNovo({ ...novo, papel: 'admin' })} /><span><strong>Administrador</strong><br /><span className="muted">Acesso total: salários, folha, configurações e gestão de acessos.</span></span></label>
+              <label className={`role-opt ${novo.papel === 'admin' ? 'on' : ''}`}><input type="radio" name="papel" checked={novo.papel === 'admin'} onChange={() => setNovo({ ...novo, papel: 'admin' })} /><span><strong>Administrador master</strong><br /><span className="muted">Acesso total: salários, folha, configurações e gestão de acessos (pode criar outros masters).</span></span></label>
               <label className={`role-opt ${novo.papel === 'gerente' ? 'on' : ''}`}><input type="radio" name="papel" checked={novo.papel === 'gerente'} onChange={() => setNovo({ ...novo, papel: 'gerente' })} /><span><strong>Gerência</strong><br /><span className="muted">Aprova ponto, registra ocorrências e vê escalas. Não vê salários nem folha.</span></span></label>
             </div>
             <Field label="Senha inicial (mín. 8 caracteres)" dica="Combine letras e números. Anote e repasse com segurança; o usuário pode pedir a troca depois.">

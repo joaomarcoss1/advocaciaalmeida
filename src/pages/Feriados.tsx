@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CalendarPlus, Plus, Trash2 } from 'lucide-react';
+import { CalendarPlus, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Badge, Field, Modal, PageHeader, useConfirm, useToast, Vazio } from '@/components/ui';
 import { useAuth } from '@/context/Auth';
 import { useDados } from '@/context/Dados';
@@ -29,8 +29,9 @@ export default function Feriados() {
     if (!ed?.data || !ed.nome?.trim()) return toast.erro('Informe a data e o nome.');
     if (feriados.some(f => f.data === ed.data && f.id !== ed.id)) return toast.erro('Já existe um feriado nesta data.');
     try {
-      await db.feriados.insert({ data: ed.data, nome: ed.nome.trim(), tipo: (ed.tipo ?? 'municipal') as TipoFeriado });
-      await auditar('Feriado criado', `${ed.nome} ${fmtData(ed.data)}`); setEd(null); await recarregar();
+      const dadosFeriado = { data: ed.data, nome: ed.nome.trim(), tipo: (ed.tipo ?? 'municipal') as TipoFeriado };
+      if (ed.id) await db.feriados.update(ed.id, dadosFeriado); else await db.feriados.insert(dadosFeriado);
+      await auditar(ed.id ? 'Feriado editado' : 'Feriado criado', `${ed.nome} ${fmtData(ed.data)}`); setEd(null); await recarregar();
     } catch (e) { toast.erro((e as Error).message); }
   }
   async function excluir(f: Feriado) {
@@ -68,7 +69,7 @@ export default function Feriados() {
               <tr key={f.id}>
                 <td className="mono">{fmtData(f.data)}</td><td>{DIA_LABEL[diaSemana(f.data)]}</td><td><strong>{f.nome}</strong></td>
                 <td><Badge tom={f.tipo === 'nacional' ? '' : f.tipo === 'municipal' ? 'gold' : 'mute'}>{FERIADO_LABEL[f.tipo]}</Badge></td>
-                <td className="right">{admin && <button className="icon-btn" aria-label={`Remover ${f.nome}`} onClick={() => excluir(f)}><Trash2 size={17} /></button>}</td>
+                <td className="right" style={{ whiteSpace: 'nowrap' }}>{admin && <><button className="icon-btn" aria-label={`Editar ${f.nome}`} onClick={() => setEd(f)}><Pencil size={17} /></button><button className="icon-btn" aria-label={`Remover ${f.nome}`} onClick={() => excluir(f)}><Trash2 size={17} /></button></>}</td>
               </tr>
             ))}
           </tbody>
@@ -78,7 +79,7 @@ export default function Feriados() {
       <p className="hint" style={{ marginTop: 12 }}>Pontos facultativos (Carnaval, Corpus Christi) só valem se o escritório fechar: remova os que não forem adotados. O recesso forense (20/12 a 20/01) suspende prazos, mas não fecha o escritório automaticamente — cadastre aqui os dias em que não haverá expediente.</p>
 
       {ed && (
-        <Modal titulo="Novo feriado / recesso" onClose={() => setEd(null)} rodape={<><button className="btn ghost" onClick={() => setEd(null)}>Cancelar</button><button className="btn" onClick={salvar}>Salvar</button></>}>
+        <Modal titulo={ed.id ? "Editar feriado / recesso" : "Novo feriado / recesso"} onClose={() => setEd(null)} rodape={<><button className="btn ghost" onClick={() => setEd(null)}>Cancelar</button><button className="btn" onClick={salvar}>Salvar</button></>}>
           <div className="stack">
             <Field label="Data"><input className="input" type="date" value={ed.data ?? ''} onChange={e => setEd({ ...ed, data: e.target.value })} /></Field>
             <Field label="Nome"><input className="input" value={ed.nome ?? ''} onChange={e => setEd({ ...ed, nome: e.target.value })} autoFocus /></Field>

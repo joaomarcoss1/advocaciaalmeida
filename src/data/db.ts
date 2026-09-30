@@ -1,5 +1,5 @@
 import type {
-  AjusteFolha, Auditoria, Cargo, Config, ConfigPonto, Escala, Feriado, Folha, Funcionario, FuncionarioBasico,
+  AjusteDia, AjusteFolha, Auditoria, Cargo, Config, ConfigPonto, Escala, Feriado, Folha, Funcionario, FuncionarioBasico,
   Ocorrencia, Papel, RegistroPonto, TipoMarcacao, Usuario,
 } from '@/lib/types';
 
@@ -53,6 +53,7 @@ export interface Db {
   ocorrencias: Crud<Ocorrencia>;
   feriados: Crud<Feriado>;
   ajustes: Crud<AjusteFolha>;
+  ajustesDia: Crud<AjusteDia>;
   folhas: FolhasRepo;
   usuarios: { list(): Promise<Usuario[]> };
   /** Gestão de acessos ao painel (só administrador). */

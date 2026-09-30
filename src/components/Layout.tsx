@@ -8,6 +8,7 @@ import marcaOuro from '@/assets/marca-ouro.png';
 import { useAuth } from '@/context/Auth';
 import { useDados } from '@/context/Dados';
 import { iniciais } from '@/lib/format';
+import { travarRolagem } from '@/lib/rolagem';
 
 interface Item { grupo?: string; to: string; fim?: boolean; rotulo: string; curto?: string; icone: LucideIcon; papeis: ('admin' | 'gerente')[]; pend?: boolean }
 const ITENS: Item[] = [
@@ -51,16 +52,13 @@ function useRotulosDeTabela() {
 
 export default function Layout() {
   const { sessao, sair, modo } = useAuth();
-  const { registros, carregando, agora } = useDados();
+  const { registros, carregando, agora, atualizacaoPendente } = useDados();
   const [aberto, setAberto] = useState(false);
   const nav = useNavigate();
   const loc = useLocation();
   useRotulosDeTabela();
   useEffect(() => setAberto(false), [loc.pathname]);
-  useEffect(() => {
-    document.body.style.overflow = aberto ? 'hidden' : '';
-    return () => { document.body.style.overflow = ''; };
-  }, [aberto]);
+  useEffect(() => (aberto ? travarRolagem() : undefined), [aberto]);
   if (!sessao) return null;
 
   const papel = sessao.papel;
@@ -102,7 +100,7 @@ export default function Layout() {
           <span className="avatar">{iniciais(sessao.nome)}</span>
           <div style={{ minWidth: 0 }}>
             <div className="who">{sessao.nome}</div>
-            <div className="papel">{papel === 'admin' ? 'Administrador' : 'Gerência'}</div>
+            <div className="papel">{papel === 'admin' ? 'Administrador master' : 'Gerência'}</div>
           </div>
           <button className="icon-btn" aria-label="Sair" title="Sair" onClick={async () => { await sair(); nav('/entrar'); }}><LogOut size={18} /></button>
         </div>
@@ -113,11 +111,14 @@ export default function Layout() {
           <span className="data">{dataExtenso}</span>
           <div className="row" style={{ gap: 10 }}>
             {pendentes > 0 && <NavLink to={papel === 'admin' ? '/painel/ponto' : '/painel/gerencia'} className="chip alert">{pendentes} aprovação(ões) pendente(s)</NavLink>}
-            <span className="chip">{papel === 'admin' ? 'Administrador' : 'Gerência'}</span>
+            <span className="chip">{papel === 'admin' ? 'Administrador master' : 'Gerência'}</span>
           </div>
         </div>
         <main className="content">
           {modo === 'local' && <div className="demo-banner" style={{ marginBottom: 20 }}><strong>Modo demonstração</strong> · dados fictícios, salvos só neste navegador.</div>}
+          {papel === 'admin' && atualizacaoPendente && modo === 'supabase' && (
+            <div className="demo-banner" style={{ marginBottom: 20 }}><strong>Atualização do banco pendente.</strong> Rode o arquivo <code>atualizacao_definitiva.sql</code> no SQL Editor do Supabase (uma vez) para liberar ajustes de dia e diária fixa. <a href="/diagnostico">Diagnóstico</a></div>
+          )}
           {carregando ? <p className="muted">Carregando…</p> : <Outlet />}
         </main>
       </div>

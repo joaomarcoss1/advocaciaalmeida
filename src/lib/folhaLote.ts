@@ -1,11 +1,11 @@
 import type { AgoraBR } from './datetime';
 import { calcularFolha, type FolhaCalculada } from './folha';
 import { turnoDaData } from './ponto';
-import type { AjusteFolha, Config, Escala, Feriado, Funcionario, Ocorrencia, RegistroPonto } from './types';
+import type { AjusteDia, AjusteFolha, Config, Escala, Feriado, Funcionario, Ocorrencia, RegistroPonto } from './types';
 
 export interface BaseCalculo {
   funcionarios: Funcionario[]; escalas: Escala[]; registros: RegistroPonto[]; ocorrencias: Ocorrencia[];
-  feriados: Feriado[]; ajustes: AjusteFolha[]; config: Config; agora: AgoraBR;
+  feriados: Feriado[]; ajustes: AjusteFolha[]; ajustesDia?: AjusteDia[]; config: Config; agora: AgoraBR;
 }
 export interface LinhaFolha { func: Funcionario; escala: Escala | null; calc: FolhaCalculada }
 
@@ -19,7 +19,7 @@ export function calcularPeriodo(b: BaseCalculo, inicio: string, fim: string): Li
     .map(func => {
       const escala = b.escalas.find(e => e.id === func.escala_id) ?? null;
       const calc = calcularFolha({
-        func, escala, registros: b.registros, ocorrencias: b.ocorrencias, feriados: b.feriados, ajustes: b.ajustes,
+        func, escala, registros: b.registros, ocorrencias: b.ocorrencias, feriados: b.feriados, ajustes: b.ajustes, ajustesDia: b.ajustesDia,
         config: b.config, inicio, fim, hoje: b.agora.data, agoraMin: b.agora.minutos,
       });
       return { func, escala, calc };

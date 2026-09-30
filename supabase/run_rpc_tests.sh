@@ -25,4 +25,7 @@ alter table auth.users add column instance_id uuid, add column aud text, add col
 SQL
 $P -d almeida_test -f migrations/0001_almeida_schema.sql
 $P -d almeida_test -f migrations/0002_gestao_usuarios.sql
-for f in tests_rpc.sql tests_usuarios.sql; do psql -q -X -d almeida_test -f $f 2>&1 | sed 's/^psql:[^ ]* //' | grep -v '^CONTEXT\|^SQL statement\|^PL/pgSQL'; done
+$P -d almeida_test -f migrations/0003_corrige_search_path.sql
+$P -d almeida_test -f migrations/0004_ajustes_manuais.sql
+$P -d almeida_test -f migrations/0004_ajustes_manuais.sql   # idempotência
+for f in tests_rpc.sql tests_usuarios.sql tests_folha.sql; do psql -q -X -d almeida_test -f $f 2>&1 | sed 's/^psql:[^ ]* //' | grep -v '^CONTEXT\|^SQL statement\|^PL/pgSQL'; done

@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Calculator, FileDown, FileSpreadsheet, Lock, LockOpen, Plus, ReceiptText, Trash2, Wallet } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Calculator, FileDown, FileSpreadsheet, Lock, LockOpen, Pencil, Plus, ReceiptText, Save, Trash2, Wallet } from 'lucide-react';
 import { Badge, Field, Kpi, Modal, PageHeader, useConfirm, useToast, Vazio } from '@/components/ui';
 import { useDados } from '@/context/Dados';
 import { fmtData, nomeMes, addDays } from '@/lib/datetime';
@@ -12,21 +12,21 @@ import { calcularPeriodo, type LinhaFolha } from '@/lib/folhaLote';
 import { brl, minParaHoras } from '@/lib/format';
 import { minutosJornada } from '@/lib/ponto';
 import { SITUACAO_DIA } from '@/lib/rotulos';
-import { AJUSTE_LABEL, AJUSTE_POSITIVO, DIAS_ESCALA, type AjusteFolha, type Folha, type StatusFolha, type TipoAjuste } from '@/lib/types';
+import { AJUSTE_LABEL, AJUSTE_POSITIVO, DIAS_ESCALA, type AjusteFolha, type Folha, type Funcionario, type SituacaoManual, type StatusFolha, type TipoAjuste } from '@/lib/types';
 
 interface Linha extends LinhaFolha { salva?: Folha; efetivo: FolhaCalculada; travada: boolean; desatualizada: boolean }
 const STATUS: Record<StatusFolha, { rotulo: string; tom: 'warn' | 'gold' | 'ok' }> = { aberta: { rotulo: 'Aberta', tom: 'warn' }, fechada: { rotulo: 'Fechada', tom: 'gold' }, paga: { rotulo: 'Paga', tom: 'ok' } };
 
 export default function Folha() {
   const dados = useDados();
-  const { db, funcionarios, cargos, folhas, ajustes, config, agora, recarregar, auditar } = dados;
+  const { db, funcionarios, cargos, folhas, ajustes, ajustesDia, atualizacaoPendente, config, agora, recarregar, auditar } = dados;
   const toast = useToast();
   const confirmar = useConfirm();
   const [mes, setMes] = useState(agora.data.slice(0, 7));
   const [qz, setQz] = useState(agora.data.slice(8) > '15' ? 1 : 0);
-  const [pagamento, setPagamento] = useState<'pix' | 'banco'>('pix');
   const [detalhe, setDetalhe] = useState<string | null>(null);
   const [ajuste, setAjuste] = useState<Partial<AjusteFolha> & { horasTxt?: string; valorTxt?: string } | null>(null);
+  const [valores, setValores] = useState({ salario: '', diaria: '' });
 
   const periodos = periodosDoMes(`${mes}-01`, config.folha.periodicidade);
   const per = periodos[Math.min(qz, periodos.length - 1)];
@@ -99,12 +99,13 @@ export default function Folha() {
     const trav = folhas.find(f => f.funcionario_id === ajuste.funcionario_id && f.status !== 'aberta' && ajuste.data! >= f.periodo_inicio && ajuste.data! <= f.periodo_fim);
     if (trav) return toast.erro('A folha deste período está fechada. Reabra-a para lançar ajustes.');
     try {
-      await db.ajustes.insert({
+      const dadosAjuste = {
         funcionario_id: ajuste.funcionario_id, data: ajuste.data!, tipo: ajuste.tipo as TipoAjuste, valor, motivo: ajuste.motivo.trim(),
         quantidade_horas: ajuste.tipo === 'hora_extra' ? Number(String(ajuste.horasTxt ?? '').replace(',', '.')) || null : null, observacao: null,
-      });
-      await auditar('Ajuste lançado', `${funcionarios.find(f => f.id === ajuste.funcionario_id)?.nome} · ${AJUSTE_LABEL[ajuste.tipo as TipoAjuste]} ${brl(valor)}`);
-      toast.ok('Ajuste lançado. A prévia já foi recalculada.'); setAjuste(null); await recarregar();
+      };
+      if (ajuste.id) await db.ajustes.update(ajuste.id, dadosAjuste); else await db.ajustes.insert(dadosAjuste);
+      await auditar(ajuste.id ? 'Ajuste editado' : 'Ajuste lançado', `${funcionarios.find(f => f.id === ajuste.funcionario_id)?.nome} · ${AJUSTE_LABEL[ajuste.tipo as TipoAjuste]} ${brl(valor)}`);
+      toast.ok(ajuste.id ? 'Ajuste atualizado.' : 'Ajuste lançado. A prévia já foi recalculada.'); setAjuste(null); await recarregar();
     } catch (e) { toast.erro((e as Error).message); }
   }
   async function removerAjuste(a: AjusteFolha) {
@@ -115,6 +116,42 @@ export default function Folha() {
   }
 
   const det = linhas.find(l => l.func.id === detalhe);
+  useEffect(() => {
+    const f = linhas.find(l => l.func.id === detalhe)?.func;
+    if (f) setValores({ salario: String(f.salario_mensal).replace('.', ','), diaria: f.diaria_fixa ? String(f.diaria_fixa).replace('.', ',') : '' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detalhe]);
+
+  function editarAjuste(a: AjusteFolha) {
+    setAjuste({ ...a, valorTxt: String(a.valor).replace('.', ','), horasTxt: a.quantidade_horas ? String(a.quantidade_horas).replace('.', ',') : '' });
+  }
+  /** Corrige a situação de um dia (presente / abonado / falta) por cima do ponto, ou volta ao automático. */
+  async function definirDia(l: Linha, data: string, valor: string) {
+    if (l.travada) return toast.erro('Esta folha está fechada. Reabra-a para editar os dias.');
+    const atual = ajustesDia.find(a => a.funcionario_id === l.func.id && a.data === data);
+    try {
+      if (valor === 'auto') { if (atual) await db.ajustesDia.remove(atual.id); }
+      else if (atual) await db.ajustesDia.update(atual.id, { situacao: valor as SituacaoManual });
+      else await db.ajustesDia.insert({ funcionario_id: l.func.id, data, situacao: valor as SituacaoManual, observacao: null });
+      await auditar('Dia ajustado', `${l.func.nome} · ${fmtData(data)} → ${valor === 'auto' ? 'automático' : valor}`);
+      await recarregar();
+    } catch (e) { toast.erro((e as Error).message); }
+  }
+  async function salvarValores(l: Linha) {
+    const num = (t: string) => Number(t.replace(/\./g, '').replace(',', '.'));
+    const sal = num(valores.salario);
+    if (!(sal >= 0)) return toast.erro('Informe um salário válido.');
+    const diaria = valores.diaria.trim() === '' ? null : num(valores.diaria);
+    if (diaria !== null && !(diaria >= 0)) return toast.erro('Informe uma diária válida ou deixe em branco.');
+    const patch: Partial<Funcionario> = { salario_mensal: sal };
+    if (!atualizacaoPendente || db.modo === 'local') patch.diaria_fixa = diaria;
+    else if (diaria !== null) return toast.erro('O banco ainda não tem o campo de diária fixa. Rode o arquivo atualizacao_definitiva.sql no Supabase.');
+    try {
+      await db.funcionarios.update(l.func.id, patch);
+      await auditar('Valores do funcionário editados', `${l.func.nome} · salário ${brl(sal)}${diaria !== null ? ` · diária fixa ${brl(diaria)}` : ''}`);
+      toast.ok('Valores atualizados. A prévia foi recalculada.'); await recarregar();
+    } catch (e) { toast.erro((e as Error).message); }
+  }
 
   return (
     <>
@@ -149,12 +186,8 @@ export default function Folha() {
         <div className="card-head">
           <span className="section-title">{rotuloPeriodo}</span>
           <div className="row">
-            <div className="seg" role="group" aria-label="Forma de pagamento">
-              <button className={pagamento === 'pix' ? 'on' : ''} onClick={() => setPagamento('pix')}>PIX</button>
-              <button className={pagamento === 'banco' ? 'on' : ''} onClick={() => setPagamento('banco')}>Conta bancária</button>
-            </div>
-            <button className="btn ghost sm" disabled={!linhas.length} onClick={() => exportar().then(m => m.folhaPdf(paraExportar(), cab, pagamento))}><FileDown size={16} />PDF</button>
-            <button className="btn ghost sm" disabled={!linhas.length} onClick={() => exportar().then(m => m.folhaXlsx(paraExportar(), cab, pagamento))}><FileSpreadsheet size={16} />Excel</button>
+            <button className="btn ghost sm" disabled={!linhas.length} onClick={() => exportar().then(m => m.folhaPdf(paraExportar(), cab))}><FileDown size={16} />PDF</button>
+            <button className="btn ghost sm" disabled={!linhas.length} onClick={() => exportar().then(m => m.folhaXlsx(paraExportar(), cab))}><FileSpreadsheet size={16} />Excel</button>
           </div>
         </div>
         <div className="table-wrap">
@@ -214,25 +247,39 @@ export default function Folha() {
                 {det.efetivo.atrasos + det.efetivo.saidas_antecipadas > 0 && <Badge tom="warn">{det.efetivo.atrasos} atraso(s) · {det.efetivo.saidas_antecipadas} saída(s) antec.</Badge>}
                 {det.efetivo.pendencias > 0 && <Badge tom="warn">{det.efetivo.pendencias} ajuste(s) aguardando aprovação</Badge>}
               </div>
+              <div className="section-title" style={{ margin: '18px 0 8px' }}>Valores do funcionário</div>
+              <div className="grid c2">
+                <Field label="Salário mensal (R$)"><input className="input" inputMode="decimal" value={valores.salario} onChange={e => setValores({ ...valores, salario: e.target.value })} /></Field>
+                <Field label="Diária fixa (R$)" dica="Opcional: substitui salário ÷ dias."><input className="input" inputMode="decimal" placeholder="automática" value={valores.diaria} onChange={e => setValores({ ...valores, diaria: e.target.value })} /></Field>
+              </div>
+              <button className="btn ghost sm" style={{ marginTop: 10 }} onClick={() => salvarValores(det)}><Save size={15} />Salvar valores</button>
               <div className="section-title" style={{ margin: '18px 0 8px' }}>Ajustes lançados</div>
               {ajustesDe(det.func.id).map(a => (
                 <div className="sum-line" key={a.id}>
                   <span>{fmtData(a.data).slice(0, 5)} · {AJUSTE_LABEL[a.tipo]} — {a.motivo}</span>
-                  <span className="mono">{AJUSTE_POSITIVO[a.tipo] ? '+' : '−'} {brl(a.valor)} <button className="icon-btn" style={{ width: 28, height: 28 }} aria-label="Remover ajuste" onClick={() => removerAjuste(a)}><Trash2 size={15} /></button></span>
+                  <span className="mono">{AJUSTE_POSITIVO[a.tipo] ? '+' : '−'} {brl(a.valor)} <button className="icon-btn" style={{ width: 30, height: 30 }} aria-label="Editar ajuste" onClick={() => editarAjuste(a)}><Pencil size={15} /></button><button className="icon-btn" style={{ width: 30, height: 30 }} aria-label="Remover ajuste" onClick={() => removerAjuste(a)}><Trash2 size={15} /></button></span>
                 </div>
               ))}
               {!ajustesDe(det.func.id).length && <p className="muted">Nenhum ajuste no período.</p>}
             </div>
             <div>
-              <div className="section-title" style={{ marginBottom: 8 }}>Dia a dia</div>
-              <div style={{ maxHeight: 420, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 10 }}>
+              <div className="section-title" style={{ marginBottom: 4 }}>Dia a dia</div>
+              <p className="hint" style={{ marginBottom: 8 }}>Use “Ajustar” para corrigir um dia: <strong>Presente</strong> (paga), <strong>Abonado</strong> (paga) ou <strong>Falta</strong> (desconta). “Automático” volta à apuração do ponto.{det.travada ? ' Folha fechada: reabra para editar.' : ''}</p>
+              <div style={{ maxHeight: 460, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 10 }}>
                 {det.efetivo.detalhe.filter(d => d.situacao !== 'fora_contrato').map(d => {
                   const s = SITUACAO_DIA[d.situacao];
+                  const editavel = ['presente', 'abonado', 'falta', 'futuro', 'hoje'].includes(d.situacao);
+                  const atual = ajustesDia.find(a => a.funcionario_id === det.func.id && a.data === d.data)?.situacao ?? 'auto';
                   return (
-                    <div className="dia-cell" key={d.data} style={{ borderTop: 0, borderBottom: '1px solid var(--line)' }}>
+                    <div className="dia-cell" key={d.data} style={{ gridTemplateColumns: '74px 1fr auto' }}>
                       <span className="mono">{fmtData(d.data).slice(0, 5)} <span className="muted">{['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][new Date(d.data + 'T12:00:00Z').getUTCDay()]}</span></span>
-                      <span className="muted">{d.nota ?? ''}{d.incompleto ? ' marcação incompleta' : ''}</span>
-                      <Badge tom={s.tom}>{s.rotulo}</Badge>
+                      <span><Badge tom={s.tom}>{s.rotulo}</Badge>{d.manual && <> <Badge tom="gold">ajustado</Badge></>}{(d.nota || d.incompleto) && <span className="muted" style={{ fontSize: '.82rem' }}> {d.nota ?? ''}{d.incompleto ? ' marcação incompleta' : ''}</span>}</span>
+                      {editavel ? (
+                        <select className="select" style={{ minHeight: 34, padding: '4px 8px', fontSize: '.88rem', width: 122 }} aria-label={`Ajustar ${fmtData(d.data)}`} disabled={det.travada}
+                          value={atual} onChange={e => definirDia(det, d.data, e.target.value)}>
+                          <option value="auto">Automático</option><option value="presente">Presente</option><option value="abonado">Abonado</option><option value="falta">Falta</option>
+                        </select>
+                      ) : <span />}
                     </div>
                   );
                 })}
@@ -243,10 +290,10 @@ export default function Folha() {
       )}
 
       {ajuste && (
-        <Modal titulo="Lançar ajuste na folha" onClose={() => setAjuste(null)} rodape={<><button className="btn ghost" onClick={() => setAjuste(null)}>Cancelar</button><button className="btn" onClick={salvarAjuste}>Lançar</button></>}>
+        <Modal titulo={ajuste.id ? 'Editar ajuste' : 'Lançar ajuste na folha'} onClose={() => setAjuste(null)} rodape={<><button className="btn ghost" onClick={() => setAjuste(null)}>Cancelar</button><button className="btn" onClick={salvarAjuste}>{ajuste.id ? 'Salvar' : 'Lançar'}</button></>}>
           <div className="stack">
             <Field label="Funcionário">
-              <select className="select" value={ajuste.funcionario_id ?? ''} onChange={e => setAjuste({ ...ajuste, funcionario_id: e.target.value })}>
+              <select className="select" disabled={!!ajuste.id} value={ajuste.funcionario_id ?? ''} onChange={e => setAjuste({ ...ajuste, funcionario_id: e.target.value })}>
                 <option value="">Selecione…</option>{funcionarios.filter(f => f.ativo).map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
               </select>
             </Field>

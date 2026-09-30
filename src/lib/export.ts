@@ -19,6 +19,12 @@ export interface CabecalhoExport { escritorio: ConfigEscritorio; periodo: string
 const R = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const emissao = () => { const a = agoraBR(); return `${fmtData(a.data)} às ${a.hhmm}`; };
 
+/** Dados de pagamento do funcionário: PIX e/ou conta bancária (mostra os dois quando existirem). */
+export function dadosPagamento(f: Funcionario): { pix: string; conta: string } {
+  const conta = [f.banco, f.agencia && `Ag ${f.agencia}`, f.conta && `${f.tipo_conta ?? 'Conta'} ${f.conta}`].filter(Boolean).join(' · ');
+  return { pix: f.pix ?? '', conta };
+}
+
 async function dataUrl(url: string): Promise<string> {
   const blob = await (await fetch(url)).blob();
   return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = rej; r.readAsDataURL(blob); });
@@ -52,26 +58,35 @@ function rodapePdf(doc: jsPDF, texto: string) {
   }
 }
 
-export async function folhaPdf(linhas: LinhaExport[], cab: CabecalhoExport, variante: 'pix' | 'banco') {
+export async function folhaPdf(linhas: LinhaExport[], cab: CabecalhoExport) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-  const y = await cabecalhoPdf(doc, 'Folha de pagamento', variante === 'banco' ? 'Relação para pagamento em conta bancária' : 'Relação para pagamento via PIX', cab);
-  const dest = (l: LinhaExport) => variante === 'banco'
-    ? [l.func.banco, l.func.agencia && `Ag ${l.func.agencia}`, l.func.conta && `${l.func.tipo_conta ?? 'CC'} ${l.func.conta}`].filter(Boolean).join(' · ') || '—'
-    : l.func.pix || '—';
-  const total = linhas.reduce((s, l) => s + l.calc.valor_final, 0);
+  const y = await cabecalhoPdf(doc, 'Folha de pagamento', 'Relação para conferência e pagamento', cab);
+  const somar = (fn: (l: LinhaExport) => number) => linhas.reduce((t, l) => t + fn(l), 0);
+  const pagamento = (l: LinhaExport) => {
+    const d = dadosPagamento(l.func);
+    const partes = [d.pix && `PIX: ${d.pix}`, d.conta && `Conta: ${d.conta}`].filter(Boolean);
+    return partes.length ? partes.join('\n') : 'Não informado';
+  };
   autoTable(doc, {
     startY: y,
-    head: [['Nº', 'Funcionário', 'Cargo', 'Salário', 'Diária', 'Dias', 'Faltas', 'Bruto', 'Desc. faltas', 'Adicionais', 'Descontos', 'Líquido', variante === 'banco' ? 'Conta' : 'Chave PIX']],
+    head: [['Nº', 'Funcionário / Cargo', 'Salário', 'Diária', 'Dias trab./prev.', 'Faltas', 'Desc. faltas', 'Desc. atrasos', 'Adicionais', 'Outros desc.', 'Total a receber', 'PIX / Conta bancária']],
     body: linhas.map((l, i) => [
-      i + 1, l.func.nome, l.cargo, R(l.calc.salario_mensal), R(l.calc.valor_diaria), `${l.calc.dias_trabalhados + l.calc.dias_abonados}/${l.calc.dias_previstos}`,
-      l.calc.faltas, R(l.calc.valor_bruto), R(l.calc.desconto_faltas + l.calc.desconto_atrasos), R(l.calc.adicionais), R(l.calc.descontos), R(l.calc.valor_final), dest(l),
+      i + 1, `${l.func.nome}\n${l.cargo}`, R(l.calc.salario_mensal), R(l.calc.valor_diaria),
+      `${l.calc.dias_trabalhados + l.calc.dias_abonados}/${l.calc.dias_previstos}`,
+      l.calc.faltas, l.calc.desconto_faltas ? `- ${R(l.calc.desconto_faltas)}` : '—', l.calc.desconto_atrasos ? `- ${R(l.calc.desconto_atrasos)}` : '—',
+      l.calc.adicionais ? R(l.calc.adicionais) : '—', l.calc.descontos ? `- ${R(l.calc.descontos)}` : '—', R(l.calc.valor_final), pagamento(l),
     ]),
-    foot: [['', '', '', '', '', '', '', '', '', '', 'TOTAL', R(total), `${linhas.length} func.`]],
-    styles: { fontSize: 7.5, cellPadding: 1.8, textColor: [13, 26, 56] },
+    foot: [['', `${linhas.length} funcionário(s)`, R(somar(l => l.calc.salario_mensal)), '', '', String(somar(l => l.calc.faltas)),
+      `- ${R(somar(l => l.calc.desconto_faltas))}`, `- ${R(somar(l => l.calc.desconto_atrasos))}`, R(somar(l => l.calc.adicionais)), `- ${R(somar(l => l.calc.descontos))}`, R(somar(l => l.calc.valor_final)), 'TOTAL A PAGAR']],
+    styles: { fontSize: 7.5, cellPadding: 1.8, textColor: [13, 26, 56], valign: 'middle' },
     headStyles: { fillColor: NAVY, textColor: 255, halign: 'center' },
     footStyles: { fillColor: NAVY, textColor: 255, fontStyle: 'bold', halign: 'right' },
     alternateRowStyles: { fillColor: CINZA },
-    columnStyles: { 0: { halign: 'center', cellWidth: 8 }, 3: { halign: 'right' }, 4: { halign: 'right' }, 5: { halign: 'center' }, 6: { halign: 'center' }, 7: { halign: 'right' }, 8: { halign: 'right' }, 9: { halign: 'right' }, 10: { halign: 'right' }, 11: { halign: 'right', fontStyle: 'bold' }, 12: { cellWidth: 44, fontSize: 7 } },
+    columnStyles: { 0: { halign: 'center', cellWidth: 8 }, 1: { cellWidth: 46 }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'center' }, 5: { halign: 'center' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' }, 9: { halign: 'right' }, 10: { halign: 'right', fontStyle: 'bold' }, 11: { cellWidth: 52, fontSize: 7, halign: 'left' } },
+    didParseCell: h => {
+      if (h.section === 'body' && h.column.index === 1) h.cell.styles.fontStyle = 'bold';
+      if (h.section === 'body' && h.column.index === 6 && String(h.cell.raw).startsWith('-')) h.cell.styles.textColor = [176, 32, 32];
+    },
     margin: { left: 8, right: 8, bottom: 14 },
   });
   const fy = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 22;
@@ -82,7 +97,7 @@ export async function folhaPdf(linhas: LinhaExport[], cab: CabecalhoExport, vari
     doc.text('Gerência', 60, fy + 5, { align: 'center' }); doc.text('Administração / Sócio responsável', w - 60, fy + 5, { align: 'center' });
   }
   rodapePdf(doc, 'Documento gerencial de conferência · encargos legais (INSS, IRRF, FGTS) não incluídos');
-  doc.save(`Folha-${variante}-${cab.periodo.replace(/[^\w]+/g, '_')}.pdf`);
+  doc.save(`Folha-${cab.periodo.replace(/[^\w]+/g, '_')}.pdf`);
 }
 
 export async function holeritePdf(l: LinhaExport, cab: CabecalhoExport) {
@@ -122,6 +137,12 @@ export async function holeritePdf(l: LinhaExport, cab: CabecalhoExport) {
     startY: y, theme: 'plain', body: [[{ content: 'LÍQUIDO A RECEBER', styles: { fontStyle: 'bold', fontSize: 12, textColor: 255 } }, { content: R(c.valor_final), styles: { fontStyle: 'bold', fontSize: 12, halign: 'right', textColor: 255 } }]],
     styles: { fillColor: NAVY, cellPadding: 3 },
   });
+  y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 4;
+  const pg = dadosPagamento(l.func);
+  autoTable(doc, {
+    startY: y, theme: 'grid', styles: { fontSize: 9 }, headStyles: { fillColor: CINZA, textColor: NAVY },
+    head: [['Chave PIX', 'Conta bancária']], body: [[pg.pix || 'Não informado', pg.conta || 'Não informada']],
+  });
   y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
 
   doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...NAVY);
@@ -143,11 +164,11 @@ export async function holeritePdf(l: LinhaExport, cab: CabecalhoExport) {
   doc.save(`Demonstrativo-${l.func.nome.replace(/\s+/g, '_')}-${cab.periodo.replace(/[^\w]+/g, '_')}.pdf`);
 }
 
-export function folhaXlsx(linhas: LinhaExport[], cab: CabecalhoExport, variante: 'pix' | 'banco') {
+export function folhaXlsx(linhas: LinhaExport[], cab: CabecalhoExport) {
   const borda = { top: { style: 'thin', color: { rgb: 'CCD3E3' } }, bottom: { style: 'thin', color: { rgb: 'CCD3E3' } }, left: { style: 'thin', color: { rgb: 'CCD3E3' } }, right: { style: 'thin', color: { rgb: 'CCD3E3' } } };
   const head = { font: { bold: true, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: NAVY_HEX } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true }, border: borda };
   const fmt = 'R$ #,##0.00';
-  const cols = ['Nº', 'Funcionário', 'Cargo', 'Salário mensal', 'Diária', 'Dias previstos', 'Trabalhados', 'Abonados', 'Faltas', 'Bruto do período', 'Desc. faltas', 'Desc. atrasos', 'Adicionais', 'Descontos', 'Líquido', variante === 'banco' ? 'Banco / Ag / Conta' : 'Chave PIX'];
+  const cols = ['Nº', 'Funcionário', 'Cargo', 'Salário mensal', 'Diária', 'Dias previstos', 'Trabalhados', 'Abonados', 'Faltas', 'Bruto do período', 'Desc. faltas', 'Desc. atrasos', 'Adicionais', 'Descontos', 'Total a receber', 'Chave PIX', 'Conta bancária'];
   const ws: XLSX.WorkSheet = {};
   const put = (r: number, c: number, v: string | number, s?: object, z?: string) => { ws[XLSX.utils.encode_cell({ r, c })] = { v, t: typeof v === 'number' ? 'n' : 's', s, ...(z ? { z } : {}) }; };
   put(0, 0, cab.escritorio.nome.toUpperCase(), { font: { bold: true, sz: 16, color: { rgb: 'FFFFFF' } }, fill: { fgColor: { rgb: NAVY_HEX } }, alignment: { horizontal: 'center' } });
@@ -156,8 +177,8 @@ export function folhaXlsx(linhas: LinhaExport[], cab: CabecalhoExport, variante:
   linhas.forEach((l, i) => {
     const r = 4 + i, c = l.calc;
     const s = { border: borda, fill: i % 2 ? { fgColor: { rgb: CINZA_HEX } } : undefined };
-    const dest = variante === 'banco' ? [l.func.banco, l.func.agencia && `Ag ${l.func.agencia}`, l.func.conta && `Conta ${l.func.conta}`].filter(Boolean).join(' · ') : l.func.pix ?? '';
-    [i + 1, l.func.nome, l.cargo, c.salario_mensal, c.valor_diaria, c.dias_previstos, c.dias_trabalhados, c.dias_abonados, c.faltas, c.valor_bruto, c.desconto_faltas, c.desconto_atrasos, c.adicionais, c.descontos, c.valor_final, dest || '—']
+    const pg = dadosPagamento(l.func);
+    [i + 1, l.func.nome, l.cargo, c.salario_mensal, c.valor_diaria, c.dias_previstos, c.dias_trabalhados, c.dias_abonados, c.faltas, c.valor_bruto, c.desconto_faltas, c.desconto_atrasos, c.adicionais, c.descontos, c.valor_final, pg.pix || '—', pg.conta || '—']
       .forEach((v, k) => put(r, k, v, k === 14 ? { ...s, font: { bold: true } } : s, [3, 4, 9, 10, 11, 12, 13, 14].includes(k) ? fmt : undefined));
   });
   const rt = 4 + linhas.length;
@@ -170,11 +191,11 @@ export function folhaXlsx(linhas: LinhaExport[], cab: CabecalhoExport, variante:
   });
   ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rt, c: cols.length - 1 } });
   ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: cols.length - 1 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: cols.length - 1 } }];
-  ws['!cols'] = [5, 30, 26, 14, 12, 10, 12, 10, 8, 16, 13, 13, 13, 13, 15, 34].map(wch => ({ wch }));
+  ws['!cols'] = [5, 30, 26, 14, 12, 10, 12, 10, 8, 16, 13, 13, 13, 13, 16, 30, 40].map(wch => ({ wch }));
   ws['!rows'] = [{ hpt: 26 }, { hpt: 20 }, { hpt: 8 }, { hpt: 34 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Folha');
-  XLSX.writeFile(wb, `Folha-${variante}-${cab.periodo.replace(/[^\w]+/g, '_')}.xlsx`);
+  XLSX.writeFile(wb, `Folha-${cab.periodo.replace(/[^\w]+/g, '_')}.xlsx`);
 }
 
 export interface LinhaFrequencia {

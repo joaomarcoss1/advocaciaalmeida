@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { calcularFolha, diasPrevistosNoMes, periodosDoMes, valorDiaria, valorHoraExtra, type FolhaInput } from './folha';
 import { classificar, minutosJornada, proximoTipo, sequenciaDoDia } from './ponto';
 import { pascoa, feriadosPadrao } from './feriados';
-import type { AjusteFolha, Config, Escala, Feriado, Funcionario, Ocorrencia, RegistroPonto, TurnoDia } from './types';
+import type { AjusteDia, AjusteFolha, Config, Escala, Feriado, Funcionario, Ocorrencia, RegistroPonto, TurnoDia } from './types';
 
 const turno = (e: string, si: string, ri: string, s: string): TurnoDia => ({ ativo: true, entrada: e, saida_intervalo: si, retorno_intervalo: ri, saida: s });
 const off: TurnoDia = { ativo: false, entrada: '', saida_intervalo: '', retorno_intervalo: '', saida: '' };
@@ -186,6 +186,46 @@ describe('folha', () => {
 });
 
 function dinheiro(n: number) { return Math.round(n * 100) / 100; }
+
+describe('ajustes manuais e diária fixa', () => {
+  const aj = (data: string, situacao: AjusteDia['situacao']): AjusteDia => ({ id: data, funcionario_id: 'f1', data, situacao, observacao: 'ajuste do escritório', created_at: '' });
+  it('marcar um dia com ponto como falta desconta uma diária', () => {
+    const dias = diasJunho();
+    const r = calcularFolha(base({ registros: dias.map(d => reg(d)), ajustesDia: [aj(dias[4], 'falta')] }));
+    expect(r.faltas).toBe(1);
+    expect(r.valor_final).toBe(2500);
+    expect(r.detalhe.find(x => x.data === dias[4])?.manual).toBe(true);
+  });
+  it('marcar uma falta como presente ou abonada devolve a diária', () => {
+    const dias = diasJunho();
+    const regs = dias.slice(2).map(d => reg(d)); // faltou nos 2 primeiros
+    const r = calcularFolha(base({ registros: regs, ajustesDia: [aj(dias[0], 'presente'), aj(dias[1], 'abonado')] }));
+    expect(r.faltas).toBe(0);
+    expect(r.dias_trabalhados).toBe(25);
+    expect(r.dias_abonados).toBe(1);
+    expect(r.valor_final).toBe(2600);
+  });
+  it('ajuste de outro funcionário não interfere', () => {
+    const dias = diasJunho();
+    const outro = { ...aj(dias[0], 'falta'), funcionario_id: 'f2' };
+    const r = calcularFolha(base({ registros: dias.map(d => reg(d)), ajustesDia: [outro] }));
+    expect(r.faltas).toBe(0);
+  });
+  it('diária fixa substitui salário ÷ dias previstos', () => {
+    const dias = diasJunho();
+    const r = calcularFolha(base({ func: func({ diaria_fixa: 120 }), registros: dias.slice(1).map(d => reg(d)) }));
+    expect(r.valor_diaria).toBe(120);
+    expect(r.valor_bruto).toBe(3120); // 26 × 120
+    expect(r.desconto_faltas).toBe(120);
+    expect(r.valor_final).toBe(3000);
+  });
+  it('desconto de atraso usa a diária fixa', () => {
+    const dias = diasJunho();
+    const regs = dias.map((d, i) => reg(d, 'entrada', i === 0 ? { status: 'atraso', diferenca_minutos: 60 } : {}));
+    const r = calcularFolha(base({ func: func({ diaria_fixa: 96 }), registros: regs, config: { ...config, folha: { ...config.folha, descontar_atrasos: true } } }));
+    expect(r.desconto_atrasos).toBe(12); // 96 ÷ 480 min × 60
+  });
+});
 
 describe('ponto', () => {
   const t = escala.dias[1];

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Eye, EyeOff, Lock, Mail } from 'lucide-react';
-import marcaOuro from '@/assets/marca-ouro.png';
+import Stage from '@/components/Stage';
 import { useAuth } from '@/context/Auth';
 import { DEMO_ADMIN, DEMO_GERENTE } from '@/data/seed';
 
@@ -26,13 +26,11 @@ export default function Login() {
 
   return (
     <div className="auth">
-      <section className="stage">
-        <img className="stage-logo" src={marcaOuro} alt="Almeida Advocacia & Consultoria" />
+      <Stage>
         <p className="headline">Ponto, escalas e folha em um só lugar.</p>
-        <div className="stage-foot">Codó · Maranhão</div>
-      </section>
+      </Stage>
       <section className="auth-side">
-        <form className="auth-card stack" style={{ gap: 18 }} onSubmit={enviar}>
+        <form className="auth-card stack passo" style={{ gap: 18 }} onSubmit={enviar}>
           <div>
             <span className="eyebrow">Acesso restrito</span>
             <h1>Entrar na plataforma</h1>

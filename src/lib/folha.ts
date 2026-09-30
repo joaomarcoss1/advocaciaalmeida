@@ -1,7 +1,7 @@
 import { addDays, eachDay, diaSemana, hhmmParaMin, primeiroDoMes, ultimoDoMes } from './datetime';
 import { minutosJornada, turnoDaData } from './ponto';
 import type {
-  AjusteFolha, Config, DetalheDia, Escala, Feriado, Folha, Funcionario, Ocorrencia, RegistroPonto, SituacaoDia,
+  AjusteDia, AjusteFolha, Config, DetalheDia, Escala, Feriado, Folha, Funcionario, Ocorrencia, RegistroPonto, SituacaoDia,
 } from './types';
 
 export const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -41,6 +41,8 @@ export interface FolhaInput {
   ocorrencias: Ocorrencia[];
   feriados: Feriado[];
   ajustes: AjusteFolha[];
+  /** Ajustes manuais de dia (opcional). */
+  ajustesDia?: AjusteDia[];
   config: Config;
   inicio: string;
   fim: string;
@@ -54,7 +56,9 @@ export type FolhaCalculada = Omit<Folha, 'id' | 'status' | 'observacoes' | 'crea
  * Regra de cálculo:
  *  - diária = salário mensal ÷ dias de trabalho previstos na escala no mês (seg–sáb, sem feriados);
  *  - valor bruto do período = diária × dias previstos no período (a partir da admissão);
+ *  - se o funcionário tem `diaria_fixa`, ela substitui a diária calculada (bruto = diária × dias previstos);
  *  - cada falta desconta 1 diária; dias abonados (atestado, audiência externa, férias…) são pagos;
+ *  - `ajustesDia` permite corrigir manualmente um dia (presente / abonado / falta), prevalecendo sobre o ponto;
  *  - dias ainda no futuro entram como previstos, então a folha de um período em curso é uma prévia.
  */
 export function calcularFolha(inp: FolhaInput): FolhaCalculada {
@@ -66,6 +70,8 @@ export function calcularFolha(inp: FolhaInput): FolhaCalculada {
   const aprovados = regs.filter(r => r.status_aprovacao === 'aprovado');
   const diasComPonto = new Set(aprovados.map(r => r.data));
   const diasPendentes = new Set(regs.filter(r => r.status_aprovacao === 'pendente').map(r => r.data));
+  const manual = new Map((inp.ajustesDia ?? []).filter(a => a.funcionario_id === func.id).map(a => [a.data, a]));
+  const fixa = Number(func.diaria_fixa) > 0 ? Number(func.diaria_fixa) : null;
 
   const cacheMes = new Map<string, number>();
   const previstosDoMes = (d: string) => {
@@ -100,7 +106,14 @@ export function calcularFolha(inp: FolhaInput): FolhaCalculada {
       previstos++;
       prevPorMes.set(mes, (prevPorMes.get(mes) ?? 0) + 1);
       const oc = ocs.find(o => d >= o.data_inicio && d <= o.data_fim);
-      if (temPonto) { situacao = 'presente'; presentes++; }
+      const ov = manual.get(d);
+      if (ov) {
+        nota = ov.observacao ?? undefined;
+        if (ov.situacao === 'presente') { situacao = 'presente'; presentes++; }
+        else if (ov.situacao === 'abonado') { situacao = 'abonado'; abonados++; }
+        else { situacao = 'falta'; faltas++; faltasPorMes.set(mes, (faltasPorMes.get(mes) ?? 0) + 1); }
+      }
+      else if (temPonto) { situacao = 'presente'; presentes++; }
       else if (oc && oc.remunerado) { situacao = 'abonado'; nota = oc.tipo; abonados++; }
       else if (d > hoje) situacao = 'futuro';
       else if (d === hoje && agoraMin <= hhmmParaMin(turno.saida)) situacao = 'hoje';
@@ -114,23 +127,28 @@ export function calcularFolha(inp: FolhaInput): FolhaCalculada {
     }
 
     let incompleto = false;
-    if (situacao === 'presente' && d < hoje) {
+    if (situacao === 'presente' && d < hoje && !manual.has(d)) {
       const tipos = new Set(aprovados.filter(r => r.data === d).map(r => r.tipo));
       incompleto = !tipos.has('entrada') || !tipos.has('saida');
     }
-    detalhe.push({ data: d, situacao, ...(nota ? { nota } : {}), ...(incompleto ? { incompleto } : {}) });
+    detalhe.push({ data: d, situacao, ...(nota ? { nota } : {}), ...(incompleto ? { incompleto } : {}), ...(manual.has(d) && turno && !feriado && contratoAtivo ? { manual: true } : {}) });
   }
 
   // Valores: por mês, para que salário ÷ dias previstos feche exatamente o salário no mês cheio.
   let bruto = 0, descFaltas = 0;
-  for (const [mes, n] of prevPorMes) {
-    const ref = `${mes}-01`;
-    const total = previstosDoMes(ref);
-    if (total <= 0) continue;
-    bruto += r2((salario * n) / total);
-    descFaltas += r2((salario * (faltasPorMes.get(mes) ?? 0)) / total);
+  if (fixa) {
+    bruto = r2(fixa * previstos);
+    descFaltas = r2(fixa * faltas);
+  } else {
+    for (const [mes, n] of prevPorMes) {
+      const ref = `${mes}-01`;
+      const total = previstosDoMes(ref);
+      if (total <= 0) continue;
+      bruto += r2((salario * n) / total);
+      descFaltas += r2((salario * (faltasPorMes.get(mes) ?? 0)) / total);
+    }
+    bruto = r2(bruto); descFaltas = r2(descFaltas);
   }
-  bruto = r2(bruto); descFaltas = r2(descFaltas);
 
   // Atrasos e saídas antecipadas (somente marcações aprovadas)
   let atrasos = 0, saidas = 0, minutosAtraso = 0, descAtrasos = 0;
@@ -142,7 +160,8 @@ export function calcularFolha(inp: FolhaInput): FolhaCalculada {
     if (config.folha.descontar_atrasos) {
       const jornada = minutosJornada(turnoDaData(escala, r.data));
       const total = previstosDoMes(`${r.data.slice(0, 7)}-01`);
-      if (jornada > 0 && total > 0) descAtrasos += (salario / total / jornada) * min;
+      const diariaDoDia = fixa ?? (total > 0 ? salario / total : 0);
+      if (jornada > 0 && diariaDoDia > 0) descAtrasos += (diariaDoDia / jornada) * min;
     }
   }
   descAtrasos = r2(descAtrasos);
@@ -158,7 +177,7 @@ export function calcularFolha(inp: FolhaInput): FolhaCalculada {
     periodo_inicio: inicio,
     periodo_fim: fim,
     salario_mensal: salario,
-    valor_diaria: valorDiaria(salario, previstosDoMes(inicio)),
+    valor_diaria: fixa ?? valorDiaria(salario, previstosDoMes(inicio)),
     dias_previstos: previstos,
     dias_trabalhados: presentes,
     dias_abonados: abonados,

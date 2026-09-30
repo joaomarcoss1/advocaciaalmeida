@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
-import { Check, Plus, Trash2, X } from 'lucide-react';
+import { Check, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { Abas, Badge, Field, Modal, PageHeader, useConfirm, useToast, Vazio } from '@/components/ui';
 import { useAuth } from '@/context/Auth';
 import { useDados } from '@/context/Dados';
 import { brParaIso, fmtData, hhmmParaMin, isoParaBR, primeiroDoMes } from '@/lib/datetime';
 import { minParaHoras } from '@/lib/format';
-import { previstoDoTipo, turnoDaData } from '@/lib/ponto';
+import { classificar, previstoDoTipo, turnoDaData } from '@/lib/ponto';
 import { STATUS_MARCACAO } from '@/lib/rotulos';
 import { TIPO_MARCACAO_LABEL, type RegistroPonto, type TipoMarcacao } from '@/lib/types';
 
@@ -78,6 +78,7 @@ export default function Registros() {
   const [fim, setFim] = useState(agora.data);
   const [fid, setFid] = useState('');
   const [somenteProblemas, setSomenteProblemas] = useState(false);
+  const [edicao, setEdicao] = useState<{ r: RegistroPonto; hora: string; justificativa: string } | null>(null);
   const [manual, setManual] = useState<{ funcionario_id: string; data: string; tipo: TipoMarcacao; hora: string; justificativa: string } | null>(null);
 
   const nome = (id: string) => funcionarios.find(f => f.id === id)?.nome ?? '—';
@@ -103,6 +104,24 @@ export default function Registros() {
       });
       await auditar('Ponto lançado manualmente', `${f?.nome} · ${fmtData(manual.data)} · ${TIPO_MARCACAO_LABEL[manual.tipo]} ${manual.hora}`);
       toast.ok('Marcação lançada.'); setManual(null); await recarregar();
+    } catch (e) { toast.erro((e as Error).message); }
+  }
+
+  async function salvarEdicao() {
+    if (!edicao) return;
+    const { r, hora, justificativa } = edicao;
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) return toast.erro('Informe um horário válido.');
+    if (justificativa.trim().length < 3) return toast.erro('Explique o motivo da correção.');
+    const patch: Partial<RegistroPonto> = { horario_real: brParaIso(r.data, hora), justificativa: justificativa.trim() };
+    if (r.horario_previsto) {
+      const c = classificar(r.tipo, r.horario_previsto, hhmmParaMin(hora), config.ponto);
+      patch.diferenca_minutos = c.diferenca;
+      if (r.status !== 'manual' && r.status_aprovacao === 'aprovado') patch.status = c.status;
+    }
+    try {
+      await db.registros.update(r.id, patch);
+      await auditar('Ponto corrigido', `${nome(r.funcionario_id)} · ${fmtData(r.data)} · ${TIPO_MARCACAO_LABEL[r.tipo]} ${isoParaBR(r.horario_real).hhmm} → ${hora}`);
+      toast.ok('Marcação corrigida.'); setEdicao(null); await recarregar();
     } catch (e) { toast.erro((e as Error).message); }
   }
 
@@ -134,7 +153,7 @@ export default function Registros() {
             </div>
             <div className="table-wrap">
               <table className="tbl">
-                <thead><tr><th>Data</th><th>Funcionário</th><th>Marcação</th><th>Previsto</th><th>Real</th><th>Diferença</th><th>Situação</th><th>Justificativa</th>{admin && <th />}</tr></thead>
+                <thead><tr><th>Data</th><th>Funcionário</th><th>Marcação</th><th>Previsto</th><th>Real</th><th>Diferença</th><th>Situação</th><th>Justificativa</th><th /></tr></thead>
                 <tbody>
                   {lista.slice(0, 400).map(r => {
                     const st = STATUS_MARCACAO[r.status];
@@ -152,7 +171,10 @@ export default function Registros() {
                           {r.retroativo && r.status_aprovacao === 'aprovado' && r.status !== 'manual' && <> <Badge tom="gold">Ajuste</Badge></>}
                         </td>
                         <td style={{ maxWidth: 280 }} className="muted">{r.motivo_rejeicao ? `Rejeitado: ${r.motivo_rejeicao}` : r.justificativa}</td>
-                        {admin && <td className="right"><button className="icon-btn" aria-label="Excluir marcação" onClick={() => remover(r)}><Trash2 size={17} /></button></td>}
+                        <td className="right" style={{ whiteSpace: 'nowrap' }}>
+                          <button className="icon-btn" title="Corrigir horário" aria-label={`Corrigir marcação de ${nome(r.funcionario_id)}`} onClick={() => setEdicao({ r, hora: isoParaBR(r.horario_real).hhmm, justificativa: r.justificativa ?? '' })}><Pencil size={17} /></button>
+                          {admin && <button className="icon-btn" aria-label="Excluir marcação" onClick={() => remover(r)}><Trash2 size={17} /></button>}
+                        </td>
                       </tr>
                     );
                   })}
@@ -164,6 +186,16 @@ export default function Registros() {
           </>
         )}
       </div>
+
+      {edicao && (
+        <Modal titulo="Corrigir marcação" onClose={() => setEdicao(null)} rodape={<><button className="btn ghost" onClick={() => setEdicao(null)}>Cancelar</button><button className="btn" onClick={salvarEdicao}>Salvar correção</button></>}>
+          <div className="stack">
+            <p><strong>{nome(edicao.r.funcionario_id)}</strong> · {fmtData(edicao.r.data)} · {TIPO_MARCACAO_LABEL[edicao.r.tipo]} <span className="muted">(previsto {edicao.r.horario_previsto ?? '—'})</span></p>
+            <Field label="Horário correto"><input className="input" type="time" value={edicao.hora} onChange={e => setEdicao({ ...edicao, hora: e.target.value })} autoFocus /></Field>
+            <Field label="Motivo da correção" dica="Fica registrado na auditoria."><textarea className="textarea" value={edicao.justificativa} onChange={e => setEdicao({ ...edicao, justificativa: e.target.value })} /></Field>
+          </div>
+        </Modal>
+      )}
 
       {manual && (
         <Modal titulo="Lançar marcação manualmente" onClose={() => setManual(null)}

@@ -6,6 +6,13 @@ import type { Crud, Db, FolhasRepo, PontoResp, Sessao } from './db';
 
 function falha(e: { message?: string } | null): never {
   const m = e?.message ?? 'Erro inesperado';
+  const baixo = m.toLowerCase();
+  if (baixo.includes('gen_salt') || baixo.includes('crypt(') || baixo.includes('digest(')) {
+    throw new Error('O banco ainda não recebeu a correção do pgcrypto. Rode o arquivo atualizacao_definitiva.sql no SQL Editor do Supabase (uma vez) e tente de novo.');
+  }
+  if (baixo.includes('could not find the function') || baixo.includes('schema cache') || (baixo.includes('does not exist') && (baixo.includes('relation') || baixo.includes('function')))) {
+    throw new Error('O banco precisa da atualização mais recente. Rode o arquivo atualizacao_definitiva.sql no SQL Editor do Supabase (uma vez) e tente de novo.');
+  }
   const traduz: Record<string, string> = {
     SEM_PERMISSAO: 'Você não tem permissão para esta ação.',
     MOTIVO_OBRIGATORIO: 'Informe o motivo da rejeição.',
@@ -31,8 +38,10 @@ export function criarDbSupabase(url: string, key: string): Db {
         // Pagina de 1000 em 1000 (limite padrão do PostgREST)
         const out: T[] = [];
         for (let de = 0; ; de += 1000) {
+          // ordem estável (desempate por id) para a paginação não repetir nem perder linhas
           let q = sb.from(tabela).select('*').range(de, de + 999);
           if (ordem) q = q.order(ordem);
+          q = q.order('id');
           const { data, error } = await q;
           if (error) falha(error);
           out.push(...((data ?? []) as T[]));
@@ -103,6 +112,7 @@ export function criarDbSupabase(url: string, key: string): Db {
     ocorrencias: crud('ocorrencias'),
     feriados: crud('feriados', 'data'),
     ajustes: crud('ajustes_folha'),
+    ajustesDia: crud('ajustes_dia'),
     folhas,
     usuarios,
     auditoria: crud('auditoria'),
