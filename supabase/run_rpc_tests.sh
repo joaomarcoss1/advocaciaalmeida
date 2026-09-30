@@ -27,5 +27,7 @@ $P -d almeida_test -f migrations/0001_almeida_schema.sql
 $P -d almeida_test -f migrations/0002_gestao_usuarios.sql
 $P -d almeida_test -f migrations/0003_corrige_search_path.sql
 $P -d almeida_test -f migrations/0004_ajustes_manuais.sql
+$P -d almeida_test -f migrations/0005_geofence.sql
+$P -d almeida_test -f migrations/0005_geofence.sql   # idempotência
 $P -d almeida_test -f migrations/0004_ajustes_manuais.sql   # idempotência
-for f in tests_rpc.sql tests_usuarios.sql tests_folha.sql; do psql -q -X -d almeida_test -f $f 2>&1 | sed 's/^psql:[^ ]* //' | grep -v '^CONTEXT\|^SQL statement\|^PL/pgSQL'; done
+for f in tests_rpc.sql tests_usuarios.sql tests_folha.sql tests_geo.sql; do psql -q -X -d almeida_test -f $f 2>&1 | sed 's/^psql:[^ ]* //' | grep -v '^CONTEXT\|^SQL statement\|^PL/pgSQL'; done

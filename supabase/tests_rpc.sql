@@ -6,6 +6,9 @@ insert into auth.users (id, email) values ('00000000-0000-0000-0000-0000000000a1
 insert into public.perfis (id, nome, email, papel) values
  ('00000000-0000-0000-0000-0000000000a1','Adm','adm@x','admin'), ('00000000-0000-0000-0000-0000000000b1','Ger','ger@x','gerente');
 
+-- estes testes cobrem a lógica de ponto; a cerca de GPS tem roteiro próprio (tests_geo.sql)
+update public.configuracoes set dados = jsonb_set(dados, '{ponto,geofence_ativo}', 'false') where id = 'global';
+
 -- escala de teste: hoje (qualquer dia) com entrada = agora e outra com entrada 3h antes
 do $$
 declare v_local timestamp := now() at time zone 'America/Fortaleza'; v_now text := to_char(v_local, 'HH24:MI');

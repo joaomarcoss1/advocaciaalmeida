@@ -235,6 +235,8 @@ export interface ConfigPonto {
   geofence_lat: number;
   geofence_lng: number;
   geofence_raio_m: number;
+  /** Endereço do ponto central da cerca (informativo). */
+  geofence_endereco: string;
 }
 export interface ConfigFolha {
   periodicidade: 'mensal' | 'quinzenal';

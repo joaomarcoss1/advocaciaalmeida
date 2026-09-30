@@ -318,10 +318,14 @@ begin
   select coalesce(dados -> 'ponto', '{}'::jsonb) into v_pt from public.configuracoes where id = 'global';
   v_pt := coalesce(v_pt, '{}'::jsonb);
 
+  -- Cerca de GPS: só registra dentro do raio do escritório. O servidor recalcula a distância (o navegador é só conveniência).
   if coalesce((v_pt ->> 'geofence_ativo')::boolean, false) then
-    if p_lat is null or p_lng is null then return public._erro('GPS_OBRIGATORIO'); end if;
-    v_raio := coalesce((v_pt ->> 'geofence_raio_m')::int, 300);
-    v_dist := public._distancia_m(p_lat, p_lng, (v_pt ->> 'geofence_lat')::double precision, (v_pt ->> 'geofence_lng')::double precision);
+    if p_lat is null or p_lng is null or p_lat not between -90 and 90 or p_lng not between -180 and 180 then return public._erro('GPS_OBRIGATORIO'); end if;
+    v_raio := coalesce(nullif((v_pt ->> 'geofence_raio_m')::int, 0), 900);
+    -- sem coordenadas configuradas, usa o endereço do escritório (nunca "abre" a cerca por falta de dado)
+    v_dist := public._distancia_m(p_lat, p_lng,
+      coalesce((v_pt ->> 'geofence_lat')::double precision, -4.460791217811178),
+      coalesce((v_pt ->> 'geofence_lng')::double precision, -43.88809954417763));
     if v_dist > v_raio then return public._erro('FORA_DA_AREA', format('%s m (máx. %s m)', round(v_dist), v_raio)); end if;
   end if;
 
@@ -486,7 +490,7 @@ insert into public.escalas (nome, dias) values
 
 insert into public.configuracoes (id, dados) values ('global', '{
   "escritorio": {"nome":"Almeida Advocacia & Consultoria","cnpj":"","endereco":"","cidade":"Codó - MA","telefone":"","email":"","oab_sociedade":""},
-  "ponto": {"tolerancia_min":5,"limite_atraso_min":30,"geofence_ativo":false,"geofence_lat":-4.4553,"geofence_lng":-43.8919,"geofence_raio_m":300},
+  "ponto": {"tolerancia_min":5,"limite_atraso_min":30,"geofence_ativo":true,"geofence_lat":-4.460791217811178,"geofence_lng":-43.88809954417763,"geofence_raio_m":900,"geofence_endereco":"Posto FC - Av. Augusto Teixeira, S/N, R. São Sebastião, 02 - Sala 02, Codó - MA, 65400-000"},
   "folha": {"periodicidade":"mensal","descontar_atrasos":false,"hora_extra_pct":50}
 }');
 

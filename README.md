@@ -101,3 +101,11 @@ supabase/      schema SQL + roteiro de teste das funções
 - **Registros de ponto**: lápis para corrigir o horário de uma marcação (com motivo, gravado na auditoria); administrador também pode excluir e lançar marcações.
 - **Feriados**, **Escalas**, **Cargos** e **Ocorrências**: todos editáveis.
 - **Exportações da folha** (PDF e Excel): funcionário, cargo, salário, diária, dias trabalhados/previstos, faltas, desconto de faltas, atrasos, adicionais, descontos, total a receber e PIX e/ou conta bancária. O demonstrativo individual também traz os dados de pagamento.
+
+## Cerca de GPS (ponto só no escritório)
+
+- O registro de ponto só é aceito a até **900 m** do escritório (Posto FC, Codó-MA: `-4.460791, -43.888099`).
+- Ao abrir a tela de ponto o app pede a localização e mostra se o funcionário está **dentro** ou **fora** da área; fora dela os botões de marcação ficam bloqueados. A localização é lida de novo no momento do registro e a distância é recalculada **no servidor** (`ponto_bater`), então não basta mexer no navegador.
+- **Configurações → Ponto**: ativar/desativar a cerca, endereço, latitude/longitude, raio, **Usar minha localização** (define o centro onde o administrador está e salva na hora, com confirmação e auditoria), **Testar minha distância** e **Ver no mapa**.
+- Bancos existentes: rode `supabase/atualizacao_definitiva.sql` (inclui `0005_geofence.sql`; não sobrescreve uma localização já redefinida pelo sistema). Testes: `supabase/tests_geo.sql`.
+- Limite técnico: o GPS vem do aparelho; uma pessoa técnica pode falsificar coordenadas em chamadas diretas à API. A cerca reduz fraudes comuns, e a auditoria e a aprovação de ajustes cobrem o resto.

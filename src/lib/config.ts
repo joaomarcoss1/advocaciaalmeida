@@ -4,7 +4,7 @@ export const CONFIG_PADRAO: Config = {
   escritorio: {
     nome: 'Almeida Advocacia & Consultoria',
     cnpj: '',
-    endereco: '',
+    endereco: 'Posto FC - Av. Augusto Teixeira, S/N, R. São Sebastião, 02 - Sala 02',
     cidade: 'Codó - MA',
     telefone: '',
     email: '',
@@ -13,10 +13,11 @@ export const CONFIG_PADRAO: Config = {
   ponto: {
     tolerancia_min: 5,
     limite_atraso_min: 30,
-    geofence_ativo: false,
-    geofence_lat: -4.4553,
-    geofence_lng: -43.8919,
-    geofence_raio_m: 300,
+    geofence_ativo: true,
+    geofence_lat: -4.460791217811178,
+    geofence_lng: -43.88809954417763,
+    geofence_raio_m: 900,
+    geofence_endereco: 'Posto FC - Av. Augusto Teixeira, S/N, R. São Sebastião, 02 - Sala 02, Codó - MA, 65400-000',
   },
   folha: { periodicidade: 'mensal', descontar_atrasos: false, hora_extra_pct: 50 },
 };

@@ -403,3 +403,18 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .94rem; }
   .stage .headline { display: none; }
   .stage .feriado { margin-top: 6px; font-size: .76rem; }
 }
+
+/* ---------- Cerca de GPS ---------- */
+.geo { display: flex; align-items: center; gap: 12px; margin: 16px 0; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: #fff; font-size: .92rem; line-height: 1.35; }
+.geo .geo-ic { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 50%; background: var(--navy-tint); color: var(--navy); }
+.geo .geo-d { color: var(--muted); font-size: .84rem; }
+.geo.ok { border-color: color-mix(in srgb, var(--ok) 35%, transparent); background: var(--ok-tint); }
+.geo.ok .geo-ic { background: #fff; color: var(--ok); }
+.geo.bad { border-color: color-mix(in srgb, var(--bad) 35%, transparent); background: var(--bad-tint); }
+.geo.bad .geo-ic { background: #fff; color: var(--bad); }
+.geo.wait .geo-ic { animation: geo-pulse 1.4s ease-in-out infinite; }
+.geo.compacto { padding: 8px 12px; margin: 10px 0; }
+.geo.compacto .geo-ic { width: 32px; height: 32px; }
+@keyframes geo-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .55; transform: scale(.92); } }
+@media (prefers-reduced-motion: reduce) { .geo.wait .geo-ic { animation: none; } }
+@media (max-width: 560px) { .geo { flex-wrap: wrap; } .geo .btn { width: 100%; } }

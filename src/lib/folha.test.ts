@@ -14,7 +14,7 @@ const escala: Escala = {
 };
 const config: Config = {
   escritorio: { nome: '', cnpj: '', endereco: '', cidade: '', telefone: '', email: '', oab_sociedade: '' },
-  ponto: { tolerancia_min: 5, limite_atraso_min: 30, geofence_ativo: false, geofence_lat: 0, geofence_lng: 0, geofence_raio_m: 300 },
+  ponto: { tolerancia_min: 5, limite_atraso_min: 30, geofence_ativo: false, geofence_lat: 0, geofence_lng: 0, geofence_raio_m: 300, geofence_endereco: '' },
   folha: { periodicidade: 'mensal', descontar_atrasos: false, hora_extra_pct: 50 },
 };
 const func = (over: Partial<Funcionario> = {}): Funcionario => ({

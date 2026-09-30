@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, Coffee, Delete, History, Lock, LogIn, LogOut, MapPin, RotateCcw, Search, Undo2, UserSearch, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Coffee, Delete, History, Lock, LogIn, LogOut, MapPin, MapPinOff, RotateCcw, Search, Undo2, UserSearch, X } from 'lucide-react';
 import Stage from '@/components/Stage';
 import { getDb, PONTO_ERRO_MSG, type ContextoPonto, type MarcacaoHistorico, type PessoaPonto } from '@/data/db';
 import { addDays, agoraBR, fmtData, isoParaBR, type AgoraBR } from '@/lib/datetime';
 import { iniciais, minParaHoras, semAcento } from '@/lib/format';
+import { fmtDistancia, lerPosicao, verificarLocal, type EstadoLocal } from '@/lib/geo';
 import { classificar, exigeJustificativa, previstoDoTipo, proximoTipo, sequenciaDoDia, turnoDaData } from '@/lib/ponto';
 import { TIPO_MARCACAO_LABEL, type Escala, type TipoMarcacao } from '@/lib/types';
 
@@ -25,6 +26,23 @@ function Etapas({ atual }: { atual: 1 | 2 | 3 }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+function StatusLocal({ local, raio, onVerificar, compacto }: { local: EstadoLocal; raio: number; onVerificar: () => void; compacto?: boolean }) {
+  const ok = local.estado === 'dentro';
+  const carregando = local.estado === 'verificando';
+  const Ic = ok ? MapPin : MapPinOff;
+  let titulo = 'Verificando sua localização…', detalhe = 'Autorize o acesso à localização se o navegador pedir.';
+  if (local.estado === 'dentro') { titulo = 'Você está no escritório'; detalhe = `A ${fmtDistancia(local.distancia)} do ponto central · limite ${fmtDistancia(raio)}${local.precisao > 100 ? ` · sinal de GPS impreciso (±${fmtDistancia(local.precisao)})` : ''}`; }
+  else if (local.estado === 'fora') { titulo = 'Fora da área permitida'; detalhe = `Você está a ${fmtDistancia(local.distancia)} do escritório e o limite é ${fmtDistancia(raio)}. O registro de ponto está bloqueado.${local.precisao > 100 ? ` Sinal de GPS impreciso (±${fmtDistancia(local.precisao)}): vá para um local aberto e verifique de novo.` : ''}`; }
+  else if (local.estado === 'negado' || local.estado === 'indisponivel' || local.estado === 'erro') { titulo = local.estado === 'negado' ? 'Localização bloqueada' : 'Localização indisponível'; detalhe = local.mensagem; }
+  return (
+    <div className={`geo ${carregando ? 'wait' : ok ? 'ok' : 'bad'} ${compacto ? 'compacto' : ''}`} role="status" aria-live="polite">
+      <span className="geo-ic"><Ic size={compacto ? 18 : 22} strokeWidth={1.8} /></span>
+      <span className="grow"><strong>{titulo}</strong><br /><span className="geo-d">{detalhe}</span></span>
+      {!carregando && <button type="button" className="btn ghost sm" onClick={onVerificar}>Verificar de novo</button>}
+    </div>
   );
 }
 
@@ -49,6 +67,24 @@ export default function BaterPonto() {
   const [retroForm, setRetroForm] = useState({ data: '', tipo: 'entrada' as TipoMarcacao, hora: '', justificativa: '' });
   const [retroOk, setRetroOk] = useState(false);
   const ocioso = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [local, setLocal] = useState<EstadoLocal>({ estado: 'verificando' });
+  const cerca = !!ctx?.ponto.geofence_ativo;
+  const dentro = !cerca || local.estado === 'dentro';
+
+  const checarLocal = useCallback(async () => {
+    if (!ctx?.ponto.geofence_ativo) return;
+    setLocal({ estado: 'verificando' });
+    setLocal(await verificarLocal(ctx.ponto));
+  }, [ctx]);
+
+  // Ao abrir o app (e sempre que o aparelho volta para esta tela), confere se o funcionário está dentro do raio.
+  useEffect(() => {
+    if (!cerca) return;
+    checarLocal();
+    const volta = () => { if (document.visibilityState === 'visible') checarLocal(); };
+    document.addEventListener('visibilitychange', volta);
+    return () => document.removeEventListener('visibilitychange', volta);
+  }, [cerca, checarLocal]);
 
   useEffect(() => {
     getDb().then(async db => { setModo(db.modo); setPessoas(await db.ponto.listarAtivos()); setCtx(await db.ponto.contexto()); });
@@ -125,16 +161,11 @@ export default function BaterPonto() {
     return { previsto, ...c };
   }, [escolha, ctx, turnoHoje, agora.minutos]);
 
+  /** Leitura nova no momento do registro (a do carregamento pode estar velha). */
   async function obterGps(): Promise<{ lat: number; lng: number } | null> {
     if (!ctx?.ponto.geofence_ativo) return null;
-    return new Promise((res, rej) => {
-      if (!navigator.geolocation) return rej(new Error(PONTO_ERRO_MSG.GPS_OBRIGATORIO));
-      navigator.geolocation.getCurrentPosition(
-        p => res({ lat: p.coords.latitude, lng: p.coords.longitude }),
-        () => rej(new Error(PONTO_ERRO_MSG.GPS_OBRIGATORIO)),
-        { enableHighAccuracy: true, timeout: 12000 },
-      );
-    });
+    try { const p = await lerPosicao(); return { lat: p.lat, lng: p.lng }; }
+    catch (e) { throw new Error((e as { mensagem?: string }).mensagem ?? PONTO_ERRO_MSG.GPS_OBRIGATORIO); }
   }
 
   async function confirmar() {
@@ -147,6 +178,7 @@ export default function BaterPonto() {
       if (!r.ok) {
         setErro(PONTO_ERRO_MSG[r.erro] + (r.detalhe && r.erro === 'FORA_DA_AREA' ? ` (${r.detalhe})` : ''));
         if (r.erro === 'PIN_INVALIDO' || r.erro === 'PIN_BLOQUEADO') voltar();
+        if (r.erro === 'FORA_DA_AREA' || r.erro === 'GPS_OBRIGATORIO') { setEscolha(null); checarLocal(); }
         return;
       }
       setSucesso({ tipo: escolha, status: r.status, hora: isoParaBR(r.horario_real).hhmm, dif: r.diferenca_minutos });
@@ -193,6 +225,7 @@ export default function BaterPonto() {
               <span className="eyebrow">Registro de ponto</span>
               <h1>Identifique-se</h1>
               <p className="page-sub" style={{ marginTop: 8 }}>Digite seu nome para localizar o seu cadastro.</p>
+              {cerca && ctx && <StatusLocal local={local} raio={ctx.ponto.geofence_raio_m} onVerificar={checarLocal} />}
               {modo === 'local' && <span className="badge gold" style={{ marginTop: 12 }}>Modo demonstração · dados fictícios</span>}
 
               <form className="search" role="search" onSubmit={e => { e.preventDefault(); buscar(); }}>
@@ -269,6 +302,9 @@ export default function BaterPonto() {
               {retroOk && <div className="notice gold" role="status">Solicitação enviada. A gerência vai analisar o ajuste do seu ponto.</div>}
               {erro && <div className="notice bad" role="alert">{erro}</div>}
 
+              {cerca && ctx && !retro && !dentro && <StatusLocal local={local} raio={ctx.ponto.geofence_raio_m} onVerificar={checarLocal} />}
+              {cerca && ctx && !retro && dentro && local.estado === 'dentro' && <StatusLocal compacto local={local} raio={ctx.ponto.geofence_raio_m} onVerificar={checarLocal} />}
+
               {!retro && !escolha && (
                 <>
                   {!turnoHoje && <div className="notice gold">Hoje não é dia de expediente na sua escala. As marcações serão registradas como extras.</div>}
@@ -277,7 +313,7 @@ export default function BaterPonto() {
                       const Ic = ICONE[t];
                       const feita = hojeRegs.find(r => r.tipo === t);
                       return (
-                        <button key={t} className={`acao ${t === proximo ? 'next' : ''}`} disabled={!!feita} onClick={() => { setEscolha(t); setErro(''); setSucesso(null); }}>
+                        <button key={t} className={`acao ${t === proximo ? 'next' : ''}`} disabled={!!feita || !dentro} onClick={() => { setEscolha(t); setErro(''); setSucesso(null); }}>
                           <span className="ic">{feita ? <Check size={22} /> : <Ic size={22} strokeWidth={1.7} />}</span>
                           <span className="grow">
                             <span className="t">{TIPO_MARCACAO_LABEL[t]}</span><br />
@@ -314,8 +350,8 @@ export default function BaterPonto() {
                       <textarea id="just" className="textarea" value={just} onChange={e => setJust(e.target.value)} placeholder="Ex.: audiência no fórum, trânsito, consulta médica…" />
                     </div>
                   )}
-                  {ctx?.ponto.geofence_ativo && <p className="hint"><MapPin size={14} style={{ verticalAlign: 'middle' }} /> Sua localização será verificada.</p>}
-                  <button className="btn block" style={{ minHeight: 50 }} disabled={enviando || (exigeJustificativa(previa.status) && just.trim().length < 3)} onClick={confirmar}>
+                  {ctx?.ponto.geofence_ativo && <p className="hint"><MapPin size={14} style={{ verticalAlign: 'middle' }} /> Sua localização será conferida novamente no momento do registro.</p>}
+                  <button className="btn block" style={{ minHeight: 50 }} disabled={enviando || !dentro || (exigeJustificativa(previa.status) && just.trim().length < 3)} onClick={confirmar}>
                     {enviando ? 'Registrando…' : 'Confirmar registro'}
                   </button>
                   <button className="btn ghost block" onClick={() => { setEscolha(null); setJust(''); }}>Cancelar</button>

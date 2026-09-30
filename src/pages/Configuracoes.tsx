@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Crosshair, Download, Eye, EyeOff, KeyRound, RotateCcw, Trash2, Wand2 } from 'lucide-react';
+import { Crosshair, ExternalLink, LocateFixed, Download, Eye, EyeOff, KeyRound, RotateCcw, Trash2, Wand2 } from 'lucide-react';
 import { Abas, Badge, Field, Modal, PageHeader, useConfirm, useToast, Vazio } from '@/components/ui';
 import { useAuth } from '@/context/Auth';
 import { useDados } from '@/context/Dados';
 import { mesclarConfig } from '@/lib/config';
 import { isoParaBR, fmtData } from '@/lib/datetime';
+import { fmtDistancia, lerPosicao, linkMapa, type Posicao } from '@/lib/geo';
+import { distanciaMetros } from '@/lib/ponto';
 import type { Auditoria, Config, Papel, Usuario } from '@/lib/types';
 
 type Aba = 'escritorio' | 'ponto' | 'folha' | 'acessos' | 'auditoria' | 'dados';
@@ -28,10 +30,33 @@ export default function Configuracoes() {
     catch (e) { toast.erro((e as Error).message); }
   }
   const num = (v: string) => (v === '' ? 0 : Number(v.replace(',', '.')) || 0);
-  function minhaLocalizacao() {
-    navigator.geolocation?.getCurrentPosition(
-      p => setC({ ...c, ponto: { ...c.ponto, geofence_lat: Number(p.coords.latitude.toFixed(6)), geofence_lng: Number(p.coords.longitude.toFixed(6)) } }),
-      () => toast.erro('Não foi possível obter a localização. Verifique a permissão do navegador.'), { enableHighAccuracy: true, timeout: 12000 });
+  const [lendoGps, setLendoGps] = useState(false);
+  const [teste, setTeste] = useState<{ dist: number; precisao: number } | null>(null);
+  async function posicaoAtual(): Promise<Posicao | null> {
+    setLendoGps(true);
+    try { return await lerPosicao(); }
+    catch (e) { toast.erro((e as { mensagem?: string }).mensagem ?? 'Não foi possível obter a localização.'); return null; }
+    finally { setLendoGps(false); }
+  }
+  /** Redefine o centro da cerca para onde o administrador está agora e salva na hora. */
+  async function definirMinhaLocalizacao() {
+    const p = await posicaoAtual();
+    if (!p) return;
+    const lat = Number(p.lat.toFixed(6)), lng = Number(p.lng.toFixed(6));
+    const ok = await confirmar(
+      `Definir esta localização como o escritório? Novo centro: ${lat}, ${lng} (precisão ±${Math.round(p.precisao)} m). A partir de agora o ponto só poderá ser batido a até ${c.ponto.geofence_raio_m} m daqui.${p.precisao > 150 ? ' Atenção: o sinal de GPS está impreciso; se puder, faça isso ao ar livre ou com o Wi-Fi ligado.' : ''}`,
+      { rotulo: 'Definir e salvar' });
+    if (!ok) return;
+    const novo = mesclarConfig({ ...c, ponto: { ...c.ponto, geofence_ativo: true, geofence_lat: lat, geofence_lng: lng } });
+    try {
+      await db.config.save(novo);
+      await auditar('Localização do escritório redefinida', `${lat}, ${lng} · raio ${novo.ponto.geofence_raio_m} m`);
+      setC(novo); setTeste(null); toast.ok('Nova localização do escritório salva.'); await recarregar();
+    } catch (e) { toast.erro((e as Error).message); }
+  }
+  async function testarDistancia() {
+    const p = await posicaoAtual();
+    if (p) setTeste({ dist: distanciaMetros(p.lat, p.lng, c.ponto.geofence_lat, c.ponto.geofence_lng), precisao: p.precisao });
   }
   const gerarSenha = () => {
     const alfa = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
@@ -103,14 +128,27 @@ export default function Configuracoes() {
               <Field label="Tolerância (min)" dica="Diferença até este valor conta como “no horário”."><input className="input" inputMode="numeric" value={c.ponto.tolerancia_min} onChange={e => setC({ ...c, ponto: { ...c.ponto, tolerancia_min: num(e.target.value) } })} /></Field>
               <Field label="Atraso / saída antecipada a partir de (min)" dica="Exige justificativa e é contado como ocorrência."><input className="input" inputMode="numeric" value={c.ponto.limite_atraso_min} onChange={e => setC({ ...c, ponto: { ...c.ponto, limite_atraso_min: num(e.target.value) } })} /></Field>
             </div>
-            <label className="check"><input type="checkbox" checked={c.ponto.geofence_ativo} onChange={e => setC({ ...c, ponto: { ...c.ponto, geofence_ativo: e.target.checked } })} />Exigir localização (GPS) dentro do raio do escritório para bater o ponto</label>
-            <div className="grid c3">
-              <Field label="Latitude"><input className="input" inputMode="decimal" value={c.ponto.geofence_lat} onChange={e => setC({ ...c, ponto: { ...c.ponto, geofence_lat: num(e.target.value) } })} /></Field>
-              <Field label="Longitude"><input className="input" inputMode="decimal" value={c.ponto.geofence_lng} onChange={e => setC({ ...c, ponto: { ...c.ponto, geofence_lng: num(e.target.value) } })} /></Field>
-              <Field label="Raio (metros)"><input className="input" inputMode="numeric" value={c.ponto.geofence_raio_m} onChange={e => setC({ ...c, ponto: { ...c.ponto, geofence_raio_m: num(e.target.value) } })} /></Field>
+            <div className="card card-pad stack" style={{ boxShadow: 'none', background: 'var(--navy-tint)' }}>
+              <label className="check"><input type="checkbox" checked={c.ponto.geofence_ativo} onChange={e => setC({ ...c, ponto: { ...c.ponto, geofence_ativo: e.target.checked } })} /><strong>Bloquear o ponto fora do escritório (GPS)</strong></label>
+              <p className="hint" style={{ margin: 0 }}>O funcionário só consegue registrar o ponto se o aparelho estiver dentro do raio abaixo. A conferência é refeita no servidor a cada registro.</p>
+              <Field label="Endereço do escritório (referência)"><input className="input" value={c.ponto.geofence_endereco} onChange={e => setC({ ...c, ponto: { ...c.ponto, geofence_endereco: e.target.value } })} /></Field>
+              <div className="grid c3">
+                <Field label="Latitude"><input className="input" inputMode="decimal" value={c.ponto.geofence_lat} onChange={e => setC({ ...c, ponto: { ...c.ponto, geofence_lat: num(e.target.value) } })} /></Field>
+                <Field label="Longitude"><input className="input" inputMode="decimal" value={c.ponto.geofence_lng} onChange={e => setC({ ...c, ponto: { ...c.ponto, geofence_lng: num(e.target.value) } })} /></Field>
+                <Field label="Raio permitido (metros)"><input className="input" inputMode="numeric" value={c.ponto.geofence_raio_m} onChange={e => setC({ ...c, ponto: { ...c.ponto, geofence_raio_m: num(e.target.value) } })} /></Field>
+              </div>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn" disabled={lendoGps} onClick={definirMinhaLocalizacao}><LocateFixed size={16} />{lendoGps ? 'Obtendo localização…' : 'Usar minha localização'}</button>
+                <button className="btn ghost" disabled={lendoGps} onClick={testarDistancia}><Crosshair size={16} />Testar minha distância</button>
+                <a className="btn ghost" href={linkMapa(c.ponto.geofence_lat, c.ponto.geofence_lng)} target="_blank" rel="noreferrer"><ExternalLink size={16} />Ver no mapa</a>
+              </div>
+              {teste && (
+                <div className={`notice ${teste.dist <= c.ponto.geofence_raio_m ? 'ok' : 'bad'}`} role="status">
+                  Você está a <strong>{fmtDistancia(teste.dist)}</strong> do centro (limite {fmtDistancia(c.ponto.geofence_raio_m)}) — {teste.dist <= c.ponto.geofence_raio_m ? 'dentro da área, o ponto seria permitido.' : 'fora da área, o ponto seria bloqueado.'} Precisão do GPS: ±{Math.round(teste.precisao)} m.
+                </div>
+              )}
+              <p className="hint" style={{ margin: 0 }}><strong>Usar minha localização</strong> define o centro da cerca onde você está agora e salva na hora. Faça isso de dentro do escritório, de preferência com o GPS/Wi-Fi ligado. Alterações de raio, coordenadas ou endereço digitados valem ao clicar em <em>Salvar</em>.</p>
             </div>
-            <div><button className="btn ghost sm" onClick={minhaLocalizacao}><Crosshair size={16} />Usar minha localização atual</button>
-              <p className="hint" style={{ marginTop: 6 }}>Abra esta tela no computador ou celular que está dentro do escritório e clique no botão. O padrão é o centro de Codó — ajuste antes de ativar.</p></div>
             {salvarBtn}</>)}
 
           {aba === 'folha' && (<>
