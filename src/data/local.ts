@@ -1,6 +1,7 @@
 /** Banco em memória persistido no localStorage: modo demonstração/teste, sem servidor. */
 import { CONFIG_PADRAO, mesclarConfig } from '@/lib/config';
 import { agoraBR, brParaIso, hhmmParaMin, isoParaBR } from '@/lib/datetime';
+import { gerarCodigoDocumento } from '@/lib/codigo';
 import { semAcento } from '@/lib/format';
 import { validarPin as validarFormatoPin, validarSenha } from '@/lib/seguranca';
 import { classificar, distanciaMetros, exigeJustificativa, previstoDoTipo, turnoDaData } from '@/lib/ponto';
@@ -92,6 +93,7 @@ export function criarDbLocal(): Db {
     ajustes: crud('ajustes'),
     ajustesDia: crud('ajustes_dia'),
     folhas,
+    async esquemaPendente() { return []; },
     usuarios: { list: () => usuarios.list() },
     acessos: {
       async criar(a) {
@@ -126,9 +128,9 @@ export function criarDbLocal(): Db {
     documentos: {
       // demonstração: os códigos ficam só neste navegador
       async registrar(d) {
-        const cod = Array.from(crypto.getRandomValues(new Uint8Array(6))).map(n => n.toString(16).padStart(2, '0')).join('').toUpperCase();
-        const codigo = `${cod.slice(0, 4)}-${cod.slice(4, 8)}-${cod.slice(8, 12)}`;
+        const codigo = d.codigo ?? gerarCodigoDocumento();
         const todos = lerTabela<DocumentoVerificado>('documentos');
+        if (todos.some(x => x.codigo === codigo)) return codigo;
         todos.push({ ...d, codigo, emitido_por: 'Administração', emitido_em: new Date().toISOString() });
         localStorage.setItem(P + 'documentos', JSON.stringify(todos));
         return codigo;
@@ -151,15 +153,7 @@ export function criarDbLocal(): Db {
         localStorage.setItem(P + 'sessao', JSON.stringify(s));
         return s;
       },
-      async verificarMfa(): Promise<Sessao> { throw new Error('Verificação em duas etapas não existe no modo demonstração.'); },
       async sair() { localStorage.removeItem(P + 'sessao'); },
-      mfa: {
-        disponivel: false,
-        async estado() { return { ativo: false, fatores: [] }; },
-        async iniciar(): Promise<{ fatorId: string; qr: string; segredo: string }> { throw new Error('Indisponível no modo demonstração.'); },
-        async confirmar() { throw new Error('Indisponível no modo demonstração.'); },
-        async remover() { throw new Error('Indisponível no modo demonstração.'); },
-      },
     },
     async equipe() {
       return (await funcionarios.list()).map(f => ({

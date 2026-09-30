@@ -60,7 +60,7 @@ function useRotulosDeTabela() {
 
 export default function Layout() {
   const { sessao, sair, modo } = useAuth();
-  const { registros, carregando, agora, atualizacaoPendente, erroAtualizacao, recarregar } = useDados();
+  const { registros, carregando, agora, atualizacaoPendente, erroAtualizacao, itensPendentes, recarregar } = useDados();
   const [copiado, setCopiado] = useState(false);
   const [verificando, setVerificando] = useState(false);
   const [aberto, setAberto] = useState(false);
@@ -131,7 +131,7 @@ export default function Layout() {
           {modo === 'local' && <div className="demo-banner" style={{ marginBottom: 20 }}><strong>Modo demonstração</strong> · dados fictícios, salvos só neste navegador.</div>}
           {papel === 'admin' && atualizacaoPendente && modo === 'supabase' && (
             <div className="demo-banner" style={{ marginBottom: 20 }}>
-              <strong>Atualização do banco pendente.</strong> O Supabase ainda não tem as tabelas novas (ajuste de dias, diária fixa) nem a correção do PIN.
+              <strong>Atualização do banco pendente.</strong> O sistema segue funcionando, mas o Supabase ainda não tem: {itensPendentes.length ? itensPendentes.join('; ') : 'as tabelas e correções mais recentes'}. Os PDFs continuam saindo com QR Code e o selo é registrado sozinho depois da atualização.
               <ol style={{ margin: '8px 0 10px 18px', padding: 0 }}>
                 <li>Clique em <em>Copiar SQL</em>.</li>
                 <li>No Supabase, abra <strong>SQL Editor → New query</strong>, cole e clique em <strong>Run</strong>.</li>

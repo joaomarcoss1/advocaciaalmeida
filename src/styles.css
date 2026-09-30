@@ -631,6 +631,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: .94rem; }
 .verif .search { margin-top: 4px; }
 .verif-res { display: flex; gap: 14px; padding: 16px; border-radius: 12px; border: 1px solid; margin-top: 4px; }
 .verif-res.ok { background: var(--ok-tint); color: var(--ok); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
+.verif-res.warn { background: var(--warn-tint); color: var(--warn); border-color: var(--warn-line); }
 .verif-res.bad { background: var(--bad-tint); color: var(--bad); border-color: color-mix(in srgb, var(--bad) 30%, transparent); }
 .verif-res svg { flex: none; }
 .verif-res strong { font-weight: 500; font-size: 1.1rem; }

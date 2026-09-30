@@ -165,21 +165,10 @@ revoke all on function public._rotulo_registro(text, jsonb) from public, anon, a
 revoke all on function public._origem() from public, anon, authenticated;
 create index if not exists auditoria_created_idx on public.auditoria (created_at desc);
 
--- ---------- 5) Verificação em duas etapas (TOTP) aplicada no servidor ----------
--- Quem cadastrou um autenticador só tem papel de admin/gerência com a sessão em nível aal2 (senha + código).
--- Uma sessão só com senha (aal1) não lê nem grava nada, mesmo chamando a API direto.
--- Se as tabelas do Auth não existirem (ambiente sem MFA), a checagem é ignorada.
+-- ---------- 5) papel_atual: definição simples ----------
+-- (Uma versão anterior deste arquivo exigia verificação em duas etapas; ela foi removida.
+--  Reaplicar esta função garante que bancos que rodaram a versão anterior voltem ao normal.)
 create or replace function public.papel_atual() returns text
-language plpgsql stable security definer set search_path = public, extensions, pg_temp as $$
-declare v_papel text; v_exige boolean := false;
-begin
-  select papel into v_papel from public.perfis where id = auth.uid() and ativo;
-  if v_papel is null then return null; end if;
-  begin
-    select exists (select 1 from auth.mfa_factors where user_id = auth.uid() and status = 'verified') into v_exige;
-    if v_exige and coalesce(auth.jwt() ->> 'aal', 'aal1') <> 'aal2' then return null; end if;
-  exception when others then
-    null;
-  end;
-  return v_papel;
-end $$;
+language sql stable security definer set search_path = public, extensions, pg_temp as $$
+  select papel from public.perfis where id = auth.uid() and ativo
+$$;

@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ShieldCheck, Crosshair, ExternalLink, LocateFixed, Download, Eye, EyeOff, KeyRound, RotateCcw, Trash2, Wand2 } from 'lucide-react';
+import { Crosshair, ExternalLink, LocateFixed, Download, Eye, EyeOff, KeyRound, RotateCcw, Trash2, Wand2 } from 'lucide-react';
 import { Abas, Badge, Field, Modal, PageHeader, useConfirm, useToast, Vazio } from '@/components/ui';
 import { useAuth } from '@/context/Auth';
 import { useDados } from '@/context/Dados';
@@ -11,7 +11,7 @@ import { distanciaMetros } from '@/lib/ponto';
 import { forcaSenha, gerarSenha, validarSenha } from '@/lib/seguranca';
 import type { Auditoria, Config, Papel, Usuario } from '@/lib/types';
 
-type Aba = 'escritorio' | 'ponto' | 'folha' | 'acessos' | 'seguranca' | 'auditoria' | 'dados';
+type Aba = 'escritorio' | 'ponto' | 'folha' | 'acessos' | 'auditoria' | 'dados';
 
 const FORCA = ['Muito fraca', 'Fraca', 'Razoável', 'Boa', 'Forte'];
 function Medidor({ senha }: { senha: string }) {
@@ -25,78 +25,6 @@ function Medidor({ senha }: { senha: string }) {
   );
 }
 
-function SegurancaConta() {
-  const { db, auditar } = useDados();
-  const toast = useToast();
-  const confirmar = useConfirm();
-  const [est, setEst] = useState<{ ativo: boolean; fatores: { id: string; nome: string; criado: string }[] } | null>(null);
-  const [cad, setCad] = useState<{ fatorId: string; qr: string; segredo: string } | null>(null);
-  const [codigo, setCodigo] = useState('');
-  const [ocupado, setOcupado] = useState(false);
-  const carregar = () => db.auth.mfa.estado().then(setEst).catch(e => toast.erro((e as Error).message));
-  useEffect(() => { if (db.auth.mfa.disponivel) carregar(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!db.auth.mfa.disponivel) return <div className="notice gold">A verificação em duas etapas usa o Supabase Auth e não existe no modo demonstração.</div>;
-
-  async function iniciar() {
-    setOcupado(true);
-    try { setCad(await db.auth.mfa.iniciar()); setCodigo(''); } catch (e) { toast.erro((e as Error).message); } finally { setOcupado(false); }
-  }
-  async function confirmarCad() {
-    if (!cad) return;
-    setOcupado(true);
-    try { await db.auth.mfa.confirmar(cad.fatorId, codigo); await auditar('2FA ativado', 'Verificação em duas etapas ativada'); toast.ok('Verificação em duas etapas ativada.'); setCad(null); await carregar(); }
-    catch (e) { toast.erro((e as Error).message); } finally { setOcupado(false); }
-  }
-  async function desativar(id: string) {
-    if (!(await confirmar('Desativar a verificação em duas etapas? Sua conta voltará a depender só da senha.', { perigo: true, rotulo: 'Desativar' }))) return;
-    try { await db.auth.mfa.remover(id); await auditar('2FA desativado', 'Verificação em duas etapas removida'); toast.ok('Verificação em duas etapas desativada.'); await carregar(); }
-    catch (e) { toast.erro((e as Error).message); }
-  }
-
-  return (
-    <div className="stack" style={{ maxWidth: 640 }}>
-      <div>
-        <div className="section-title"><ShieldCheck size={15} style={{ verticalAlign: 'middle' }} /> Verificação em duas etapas (sua conta)</div>
-        <p className="hint" style={{ marginTop: 6 }}>Além da senha, o login exige um código de 6 números gerado no celular (Google Authenticator, Microsoft Authenticator, Authy…). Com ela ativa, quem descobrir sua senha não consegue entrar nem ler dados pela API.</p>
-      </div>
-      {!est ? <p className="muted">Carregando…</p> : est.ativo && !cad ? (
-        <>
-          <div className="notice ok" role="status"><strong>Ativada.</strong> Sua conta está protegida por senha + código.</div>
-          {est.fatores.map(f => (
-            <div key={f.id} className="row between card card-pad" style={{ boxShadow: 'none' }}>
-              <span><strong>{f.nome}</strong><br /><span className="muted" style={{ fontSize: '.85rem' }}>Cadastrado em {new Date(f.criado).toLocaleDateString('pt-BR')}</span></span>
-              <button className="btn ghost danger sm" onClick={() => desativar(f.id)}>Desativar</button>
-            </div>
-          ))}
-          <p className="hint">Perdeu o celular? Outro administrador master pode remover o autenticador da sua conta no Supabase (Authentication → Users), e você entra só com a senha para cadastrar de novo.</p>
-        </>
-      ) : cad ? (
-        <div className="card card-pad stack" style={{ boxShadow: 'none' }}>
-          <ol style={{ margin: 0, paddingLeft: 20 }}>
-            <li>Abra o aplicativo autenticador e escolha <em>Adicionar conta</em>.</li>
-            <li>Leia o QR Code abaixo (ou digite a chave manualmente).</li>
-            <li>Digite o código de 6 números que o aplicativo mostrar.</li>
-          </ol>
-          <div className="row" style={{ gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
-            <img src={cad.qr} alt="QR Code para cadastrar o autenticador" width={168} height={168} style={{ background: '#fff', padding: 8, borderRadius: 10, border: '1px solid var(--line)' }} />
-            <div><div className="section-title">Chave manual</div><code style={{ wordBreak: 'break-all', fontSize: '.9rem' }}>{cad.segredo}</code></div>
-          </div>
-          <Field label="Código de 6 números">
-            <input className="input" style={{ maxWidth: 200, letterSpacing: '.3em', textAlign: 'center', fontSize: '1.2rem' }} inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={codigo} onChange={e => setCodigo(e.target.value.replace(/\D/g, ''))} />
-          </Field>
-          <div className="row"><button className="btn" disabled={ocupado || codigo.length !== 6} onClick={confirmarCad}>Confirmar e ativar</button><button className="btn ghost" onClick={() => setCad(null)}>Cancelar</button></div>
-        </div>
-      ) : (
-        <>
-          <div className="notice gold" role="status"><strong>Desativada.</strong> Recomendado para todos os administradores.</div>
-          <div><button className="btn" disabled={ocupado} onClick={iniciar}>Ativar verificação em duas etapas</button></div>
-        </>
-      )}
-    </div>
-  );
-}
-
 export default function Configuracoes() {
   const { db, config, usuarios, recarregar, auditar } = useDados();
   const { sessao } = useAuth();
@@ -104,7 +32,7 @@ export default function Configuracoes() {
   const confirmar = useConfirm();
   const [params] = useSearchParams();
   const abaInicial = params.get('aba');
-  const [aba, setAba] = useState<Aba>(['escritorio', 'ponto', 'folha', 'acessos', 'seguranca', 'auditoria', 'dados'].includes(abaInicial ?? '') ? (abaInicial as Aba) : 'escritorio');
+  const [aba, setAba] = useState<Aba>(['escritorio', 'ponto', 'folha', 'acessos', 'auditoria', 'dados'].includes(abaInicial ?? '') ? (abaInicial as Aba) : 'escritorio');
   const [c, setC] = useState<Config>(config);
   const [novo, setNovo] = useState<{ nome: string; email: string; papel: Papel; senha: string } | null>(null);
   const [verSenha, setVerSenha] = useState(false);
@@ -198,7 +126,7 @@ export default function Configuracoes() {
       <PageHeader titulo="Configurações" sub="Dados do escritório, regras de ponto e folha, acessos ao painel." />
       <div className="card">
         <div style={{ padding: '0 12px' }}>
-          <Abas valor={aba} onChange={setAba} itens={[{ id: 'escritorio', rotulo: 'Escritório' }, { id: 'ponto', rotulo: 'Ponto' }, { id: 'folha', rotulo: 'Folha' }, { id: 'acessos', rotulo: 'Acessos' }, { id: 'seguranca', rotulo: 'Segurança' }, { id: 'auditoria', rotulo: 'Auditoria' }, { id: 'dados', rotulo: 'Dados' }]} />
+          <Abas valor={aba} onChange={setAba} itens={[{ id: 'escritorio', rotulo: 'Escritório' }, { id: 'ponto', rotulo: 'Ponto' }, { id: 'folha', rotulo: 'Folha' }, { id: 'acessos', rotulo: 'Acessos' }, { id: 'auditoria', rotulo: 'Auditoria' }, { id: 'dados', rotulo: 'Dados' }]} />
         </div>
         <div className="card-pad stack">
           {aba === 'escritorio' && (<>
@@ -278,8 +206,6 @@ export default function Configuracoes() {
               </table>{!usuarios.length && <Vazio>Nenhum acesso cadastrado.</Vazio>}</div>
             </div></>)}
 
-          {aba === 'seguranca' && <SegurancaConta />}
-
           {aba === 'auditoria' && (<>
             <div className="row between" style={{ gap: 12, flexWrap: 'wrap' }}>
               <input className="input" style={{ maxWidth: 340 }} placeholder="Filtrar por pessoa, ação ou texto…" value={filtroLog} onChange={e => setFiltroLog(e.target.value)} aria-label="Filtrar auditoria" />
@@ -323,7 +249,7 @@ export default function Configuracoes() {
               <label className={`role-opt ${novo.papel === 'admin' ? 'on' : ''}`}><input type="radio" name="papel" checked={novo.papel === 'admin'} onChange={() => setNovo({ ...novo, papel: 'admin' })} /><span><strong>Administrador master</strong><br /><span className="muted">Acesso total: salários, folha, configurações e gestão de acessos (pode criar outros masters).</span></span></label>
               <label className={`role-opt ${novo.papel === 'gerente' ? 'on' : ''}`}><input type="radio" name="papel" checked={novo.papel === 'gerente'} onChange={() => setNovo({ ...novo, papel: 'gerente' })} /><span><strong>Gerência</strong><br /><span className="muted">Aprova ponto, registra ocorrências e vê escalas. Não vê salários nem folha.</span></span></label>
             </div>
-            <Field label="Senha inicial (mín. 10 caracteres)" dica="Use letras e números; quanto mais longa, melhor. Anote e repasse com segurança. Com a verificação em duas etapas ativada, a senha sozinha não basta para entrar.">
+            <Field label="Senha inicial (mín. 10 caracteres)" dica="Use letras e números; quanto mais longa, melhor. Anote e repasse com segurança.">
               <div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
                 <input className="input" type={verSenha ? 'text' : 'password'} autoComplete="new-password" value={novo.senha} onChange={e => setNovo({ ...novo, senha: e.target.value })} />
                 <button type="button" className="icon-btn" aria-label={verSenha ? 'Ocultar senha' : 'Mostrar senha'} onClick={() => setVerSenha(v => !v)}>{verSenha ? <EyeOff size={18} /> : <Eye size={18} />}</button>

@@ -2,7 +2,8 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { mesclarConfig } from '@/lib/config';
 import type { Config, Escala, Folha, FuncionarioBasico, Usuario } from '@/lib/types';
-import type { Crud, Db, DocumentoVerificado, FolhasRepo, PontoResp, Sessao } from './db';
+import { semAcento } from '@/lib/format';
+import type { Crud, Db, DocumentoVerificado, FolhasRepo, PessoaPonto, PontoResp, Sessao } from './db';
 
 function falha(e: { message?: string } | null): never {
   const m = e?.message ?? 'Erro inesperado';
@@ -30,6 +31,12 @@ function falha(e: { message?: string } | null): never {
     NAO_REMOVER_A_SI: 'Você não pode remover o seu próprio acesso.',
   };
   throw new Error(traduz[m] ?? m);
+}
+
+/** O erro indica que a função/tabela ainda não existe no banco (atualização pendente). */
+function funcaoAusente(e: { code?: string; message?: string }): boolean {
+  const m = (e.message ?? '').toLowerCase();
+  return e.code === 'PGRST202' || e.code === 'PGRST205' || e.code === '42883' || e.code === '42P01' || m.includes('could not find the function') || m.includes('could not find the table') || m.includes('schema cache');
 }
 
 export function criarDbSupabase(url: string, key: string): Db {
@@ -95,9 +102,6 @@ export function criarDbSupabase(url: string, key: string): Db {
     const { data } = await sb.auth.getSession();
     const u = data.session?.user;
     if (!u) return null;
-    // Conta com 2FA cuja sessão ainda está só com a senha (aal1): não conta como "logado".
-    const { data: aal } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
-    if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') return null;
     const { data: perfil } = await sb.from('perfis').select('id,nome,email,papel,ativo').eq('id', u.id).maybeSingle();
     if (!perfil || !perfil.ativo) return null;
     return { id: u.id, email: perfil.email, nome: perfil.nome, papel: perfil.papel };
@@ -120,10 +124,21 @@ export function criarDbSupabase(url: string, key: string): Db {
     ajustes: crud('ajustes_folha'),
     ajustesDia: crud('ajustes_dia'),
     folhas,
+    async esquemaPendente() {
+      const faltando: string[] = [];
+      const testa = async (rotulo: string, chamada: PromiseLike<{ error: { code?: string; message: string } | null }>) => {
+        const { error } = await chamada;
+        if (error && funcaoAusente(error)) faltando.push(rotulo);
+      };
+      await testa('busca segura de funcionários na tela de ponto', sb.rpc('ponto_buscar', { p_termo: 'aaa' }));
+      await testa('selo de autenticidade dos PDFs', sb.rpc('verificar_documento', { p_codigo: '0000-0000-0000' }));
+      await testa('ajuste de dias e diária fixa', sb.from('ajustes_dia').select('id').limit(1));
+      return faltando;
+    },
     usuarios,
     auditoria: crud('auditoria'),
     documentos: {
-      registrar: d => rpc<string>('registrar_documento', { p_tipo: d.tipo, p_titulo: d.titulo, p_periodo: d.periodo, p_resumo: d.resumo, p_hash: d.hash }),
+      registrar: d => rpc<string>('registrar_documento', { p_tipo: d.tipo, p_titulo: d.titulo, p_periodo: d.periodo, p_resumo: d.resumo, p_hash: d.hash, p_codigo: d.codigo ?? null }),
       async verificar(codigo) {
         const r = await rpc<{ ok: boolean } & Partial<DocumentoVerificado>>('verificar_documento', { p_codigo: codigo });
         return r?.ok ? (r as unknown as DocumentoVerificado) : null;
@@ -151,8 +166,6 @@ export function criarDbSupabase(url: string, key: string): Db {
           if (m.includes('querying schema')) throw new Error('O Supabase não conseguiu ler este usuário (criado por SQL). Apague-o em Authentication → Users e recrie pelo botão Add user.');
           throw new Error(`Falha ao entrar (${error.status ?? 'sem status'}): ${error.message}. Abra /diagnostico para ver os detalhes.`);
         }
-        const { data: aal } = await sb.auth.mfa.getAuthenticatorAssuranceLevel();
-        if (aal && aal.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') return 'mfa' as const;
         const s = await sessaoAtual();
         if (!s) {
           await sb.auth.signOut();
@@ -160,46 +173,7 @@ export function criarDbSupabase(url: string, key: string): Db {
         }
         return s;
       },
-      async verificarMfa(codigo) {
-        const { data: fs, error: e1 } = await sb.auth.mfa.listFactors();
-        const fator = fs?.totp?.[0];
-        if (e1 || !fator) throw new Error('Não foi possível localizar o autenticador desta conta. Entre novamente.');
-        const { data: ch, error: e2 } = await sb.auth.mfa.challenge({ factorId: fator.id });
-        if (e2 || !ch) throw new Error(`Falha ao validar o código (${e2?.message ?? 'sem resposta'}).`);
-        const { error: e3 } = await sb.auth.mfa.verify({ factorId: fator.id, challengeId: ch.id, code: codigo.replace(/\s/g, '') });
-        if (e3) throw new Error('Código incorreto ou expirado. Confira a hora do celular e tente o código atual.');
-        const s = await sessaoAtual();
-        if (!s) { await sb.auth.signOut(); throw new Error('O usuário existe, mas não tem perfil de acesso ativo.'); }
-        return s;
-      },
       async sair() { await sb.auth.signOut(); },
-      mfa: {
-        disponivel: true,
-        async estado() {
-          const { data, error } = await sb.auth.mfa.listFactors();
-          if (error) throw new Error(`Não foi possível consultar a verificação em duas etapas: ${error.message}`);
-          const fatores = (data?.totp ?? []).map(f => ({ id: f.id, nome: f.friendly_name ?? 'Autenticador', criado: f.created_at }));
-          return { ativo: fatores.length > 0, fatores };
-        },
-        async iniciar() {
-          const { data: todos } = await sb.auth.mfa.listFactors();
-          // limpa tentativas antigas não concluídas
-          for (const f of (todos?.all ?? []).filter(x => x.status === 'unverified')) await sb.auth.mfa.unenroll({ factorId: f.id });
-          const { data, error } = await sb.auth.mfa.enroll({ factorType: 'totp', friendlyName: `Autenticador ${new Date().toLocaleDateString('pt-BR')}` });
-          if (error || !data) throw new Error(`Não foi possível iniciar o cadastro (${error?.message ?? 'sem resposta'}). Confira em Supabase → Authentication → Sign In / Providers se a verificação em duas etapas (TOTP) está habilitada.`);
-          return { fatorId: data.id, qr: data.totp.qr_code, segredo: data.totp.secret };
-        },
-        async confirmar(fatorId, codigo) {
-          const { data: ch, error: e1 } = await sb.auth.mfa.challenge({ factorId: fatorId });
-          if (e1 || !ch) throw new Error(`Falha ao validar (${e1?.message ?? 'sem resposta'}).`);
-          const { error } = await sb.auth.mfa.verify({ factorId: fatorId, challengeId: ch.id, code: codigo.replace(/\s/g, '') });
-          if (error) throw new Error('Código incorreto ou expirado. Confira a hora do celular e digite o código atual.');
-        },
-        async remover(fatorId) {
-          const { error } = await sb.auth.mfa.unenroll({ factorId: fatorId });
-          if (error) throw new Error(`Não foi possível desativar: ${error.message}`);
-        },
-      },
     },
     acessos: {
       async criar(a) { await rpc('criar_usuario', { p_email: a.email, p_senha: a.senha, p_nome: a.nome, p_papel: a.papel }); },
@@ -211,7 +185,19 @@ export function criarDbSupabase(url: string, key: string): Db {
     async definirPin(fid, pin) { await rpc('definir_pin', { p_func_id: fid, p_pin: pin }); },
     async aprovarPonto(id, acao, motivo) { await rpc('aprovar_ponto', { p_id: id, p_acao: acao, p_motivo: motivo ?? null }); },
     ponto: {
-      buscar: termo => rpc('ponto_buscar', { p_termo: termo }),
+      async buscar(termo) {
+        const { data, error } = await sb.rpc('ponto_buscar', { p_termo: termo });
+        if (!error) return (data ?? []) as PessoaPonto[];
+        // Banco ainda sem a atualização de segurança: usa a função antiga e filtra aqui (segue funcionando; o painel avisa).
+        if (funcaoAusente(error)) {
+          const { data: lista, error: e2 } = await sb.rpc('ponto_lista_ativos');
+          if (e2) falha(e2);
+          const q = semAcento(termo.trim());
+          if (q.length < 3) return [];
+          return ((lista ?? []) as PessoaPonto[]).filter(p => semAcento(p.nome).includes(q)).slice(0, 5);
+        }
+        falha(error);
+      },
       async escala(escalaId) { return (await rpc<Escala | null>('ponto_escala', { p_escala_id: escalaId })) ?? null; },
       contexto: () => rpc('ponto_contexto').then(c => {
         const x = c as { ponto?: Partial<Config['ponto']>; escritorio_nome?: string; feriado?: string | null };

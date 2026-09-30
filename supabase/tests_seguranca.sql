@@ -61,15 +61,7 @@ update public.auditoria set detalhe = 'x';
 select 'admin lê auditoria: ' || (count(*) > 0) from public.auditoria;
 reset role;
 delete from public.auditoria where true;
-\echo == 2FA: com autenticador verificado, sessão aal1 perde o papel; aal2 mantém
-insert into auth.mfa_factors (user_id, status) values ('00000000-0000-0000-0000-0000000000d1', 'verified');
+\echo == sem exigência de 2FA: papel_atual independe de fatores/aal
 set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000d1';
-set request.jwt.claims = '{"aal":"aal1"}';
-select 'aal1 papel: ' || coalesce(public.papel_atual(), 'NENHUM') || ' · lê funcionarios: ' || (select count(*) from public.funcionarios);
-set request.jwt.claims = '{"aal":"aal2"}';
-select 'aal2 papel: ' || coalesce(public.papel_atual(), 'NENHUM') || ' · lê funcionarios: ' || (select count(*) > 0 from public.funcionarios);
-reset role; reset request.jwt.claims;
-delete from auth.mfa_factors where user_id = '00000000-0000-0000-0000-0000000000d1';
-set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000d1';
-select 'sem autenticador (aal1): ' || coalesce(public.papel_atual(), 'NENHUM');
+select 'papel: ' || coalesce(public.papel_atual(), 'NENHUM');
 reset role;

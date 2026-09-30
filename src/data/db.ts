@@ -57,6 +57,8 @@ export interface Db {
   ajustes: Crud<AjusteFolha>;
   ajustesDia: Crud<AjusteDia>;
   folhas: FolhasRepo;
+  /** Recursos que o banco ainda não tem (SQL de atualização pendente). Vazio = tudo em dia. */
+  esquemaPendente(): Promise<string[]>;
   usuarios: { list(): Promise<Usuario[]> };
   /** Gestão de acessos ao painel (só administrador). */
   acessos: {
@@ -68,23 +70,15 @@ export interface Db {
   auditoria: Crud<Auditoria>;
   /** Autenticidade dos PDFs: cada documento emitido recebe um código e um QR Code verificável em /verificar. */
   documentos: {
-    registrar(d: { tipo: TipoDocumento; titulo: string; periodo: string; resumo: Record<string, unknown>; hash: string }): Promise<string>;
+    /** `codigo` é gerado no navegador; o registro é idempotente (repetir com o mesmo código/hash não duplica). */
+    registrar(d: { tipo: TipoDocumento; titulo: string; periodo: string; resumo: Record<string, unknown>; hash: string; codigo?: string }): Promise<string>;
     verificar(codigo: string): Promise<DocumentoVerificado | null>;
   };
   config: { get(): Promise<Config>; save(c: Config): Promise<void> };
   auth: {
     sessao(): Promise<Sessao | null>;
-    /** Devolve 'mfa' quando a conta tem verificação em duas etapas: falta informar o código do aplicativo. */
-    entrar(email: string, senha: string): Promise<Sessao | 'mfa'>;
-    verificarMfa(codigo: string): Promise<Sessao>;
+    entrar(email: string, senha: string): Promise<Sessao>;
     sair(): Promise<void>;
-    mfa: {
-      disponivel: boolean;
-      estado(): Promise<{ ativo: boolean; fatores: { id: string; nome: string; criado: string }[] }>;
-      iniciar(): Promise<{ fatorId: string; qr: string; segredo: string }>;
-      confirmar(fatorId: string, codigo: string): Promise<void>;
-      remover(fatorId: string): Promise<void>;
-    };
   };
   /** Equipe sem dados sensíveis (usada pela gerência). */
   equipe(): Promise<FuncionarioBasico[]>;

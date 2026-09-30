@@ -17,6 +17,8 @@ interface DadosCtx {
   atualizacaoPendente: boolean;
   /** Mensagem técnica devolvida pelo banco quando a atualização está pendente. */
   erroAtualizacao: string;
+  /** Recursos que o banco ainda não tem (lista legível). */
+  itensPendentes: string[];
   recarregar(): Promise<void>;
   auditar(acao: string, detalhe?: string): Promise<void>;
 }
@@ -34,6 +36,7 @@ export function DadosProvider({ children }: { children: ReactNode }) {
   const [agora, setAgora] = useState(agoraBR());
   const [atualizacaoPendente, setAtualizacaoPendente] = useState(false);
   const [erroAtualizacao, setErroAtualizacao] = useState('');
+  const [itensPendentes, setItensPendentes] = useState<string[]>([]);
 
   useEffect(() => { getDb().then(setDb); }, []);
   useEffect(() => { const t = setInterval(() => setAgora(agoraBR()), 30_000); return () => clearInterval(t); }, []);
@@ -58,8 +61,15 @@ export function DadosProvider({ children }: { children: ReactNode }) {
       admin ? db.usuarios.list() : Promise.resolve([] as Usuario[]),
       ajustesDiaP,
     ]);
-    setAtualizacaoPendente(!!semAtualizacao);
+    // Recursos novos que o banco ainda não tem (o SQL de atualização não foi rodado): o painel avisa e segue funcionando.
+    const faltando = admin ? await db.esquemaPendente().catch(() => [] as string[]) : [];
+    setItensPendentes(faltando);
+    setAtualizacaoPendente(!!semAtualizacao || faltando.length > 0);
     setErroAtualizacao(semAtualizacao);
+    // Selos de PDFs emitidos enquanto o banco não estava pronto são enviados sozinhos assim que possível.
+    try {
+      if (faltando.length === 0 && localStorage.getItem('almeida.selos.pendentes')) import('@/lib/selo').then(m => m.sincronizarSelos(db)).catch(() => undefined);
+    } catch { /* sem armazenamento local */ }
     setD({ cargos, escalas, funcionarios: func, registros, ocorrencias, feriados, config, ajustes, ajustesDia, folhas, usuarios });
     setAgora(agoraBR());
   }, [db, sessao]);
@@ -75,7 +85,7 @@ export function DadosProvider({ children }: { children: ReactNode }) {
     try { await db.auditoria.insert({ usuario: sessao.nome, acao, detalhe }); } catch { /* auditoria não deve travar a ação */ }
   }, [db, sessao]);
 
-  const valor = useMemo(() => (db ? { db, carregando, ...d, agora, atualizacaoPendente, erroAtualizacao, recarregar, auditar } : null), [db, carregando, d, agora, atualizacaoPendente, erroAtualizacao, recarregar, auditar]);
+  const valor = useMemo(() => (db ? { db, carregando, ...d, agora, atualizacaoPendente, erroAtualizacao, itensPendentes, recarregar, auditar } : null), [db, carregando, d, agora, atualizacaoPendente, erroAtualizacao, itensPendentes, recarregar, auditar]);
   if (!valor) return null;
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }

@@ -117,7 +117,6 @@ supabase/      schema SQL + roteiro de teste das funções
 - **PIN forte.** 6 a 8 dígitos; sequências e repetições (123456, 111111…) são recusadas. PINs antigos de 4–5 dígitos continuam valendo até serem trocados; o painel avisa quais são.
 - **Bloqueio por origem.** 5 erros da mesma origem (IP) para a mesma pessoa bloqueiam por 10 min; 15 erros da mesma origem em qualquer pessoa também; 25 erros de origens diferentes para uma pessoa também. Um colega não consegue travar o outro digitando errado de outro lugar.
 - **Auditoria automática e imutável.** Gatilhos no banco registram quem mudou o quê (campo, valor antigo e novo) em funcionários, salários, marcações, folhas, ajustes, escalas, cargos, feriados, ocorrências, configurações e perfis. A tabela não aceita edição nem exclusão, nem de administrador. Configurações → Auditoria mostra o detalhe.
-- **Verificação em duas etapas (TOTP).** Configurações → Segurança. Quem ativa só tem acesso a dados com a sessão em nível *aal2* (senha + código), aplicado no servidor em `papel_atual()`. Requer TOTP habilitado em Supabase → Authentication → Sign In / Providers → Multi-Factor.
 - **Senhas do painel:** mínimo de 10 caracteres com letras e números (medidor de força e gerador).
 - **Cabeçalhos HTTP** (`vercel.json`): CSP restritiva, HSTS, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy` e `Permissions-Policy` (geolocalização só no próprio site).
 

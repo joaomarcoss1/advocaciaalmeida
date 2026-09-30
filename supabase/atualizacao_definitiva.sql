@@ -399,24 +399,13 @@ revoke all on function public._rotulo_registro(text, jsonb) from public, anon, a
 revoke all on function public._origem() from public, anon, authenticated;
 create index if not exists auditoria_created_idx on public.auditoria (created_at desc);
 
--- ---------- 5) Verificação em duas etapas (TOTP) aplicada no servidor ----------
--- Quem cadastrou um autenticador só tem papel de admin/gerência com a sessão em nível aal2 (senha + código).
--- Uma sessão só com senha (aal1) não lê nem grava nada, mesmo chamando a API direto.
--- Se as tabelas do Auth não existirem (ambiente sem MFA), a checagem é ignorada.
+-- ---------- 5) papel_atual: definição simples ----------
+-- (Uma versão anterior deste arquivo exigia verificação em duas etapas; ela foi removida.
+--  Reaplicar esta função garante que bancos que rodaram a versão anterior voltem ao normal.)
 create or replace function public.papel_atual() returns text
-language plpgsql stable security definer set search_path = public, extensions, pg_temp as $$
-declare v_papel text; v_exige boolean := false;
-begin
-  select papel into v_papel from public.perfis where id = auth.uid() and ativo;
-  if v_papel is null then return null; end if;
-  begin
-    select exists (select 1 from auth.mfa_factors where user_id = auth.uid() and status = 'verified') into v_exige;
-    if v_exige and coalesce(auth.jwt() ->> 'aal', 'aal1') <> 'aal2' then return null; end if;
-  exception when others then
-    null;
-  end;
-  return v_papel;
-end $$;
+language sql stable security definer set search_path = public, extensions, pg_temp as $$
+  select papel from public.perfis where id = auth.uid() and ativo
+$$;
 
 -- =====================================================================
 -- ALMEIDA ADVOCACIA PLATAFORMA ADMINISTRATIVA · autenticidade de documentos
@@ -439,18 +428,30 @@ drop policy if exists "admin le documentos" on public.documentos_emitidos;
 create policy "admin le documentos" on public.documentos_emitidos for select to authenticated using (public.eh_admin());
 revoke insert, update, delete, truncate on public.documentos_emitidos from anon, authenticated;
 
--- Gera o código no servidor (48 bits aleatórios, impossível de adivinhar) e registra o documento.
-create or replace function public.registrar_documento(p_tipo text, p_titulo text, p_periodo text, p_resumo jsonb, p_hash text)
+-- Registra o documento. O código nasce no navegador (assim o PDF sempre sai com QR, mesmo sem conexão ou
+-- antes desta atualização) e é registrado aqui de forma idempotente: repetir a chamada com o mesmo código e o
+-- mesmo hash não duplica. Sem código informado, o servidor gera um (48 bits aleatórios).
+drop function if exists public.registrar_documento(text, text, text, jsonb, text);
+create or replace function public.registrar_documento(p_tipo text, p_titulo text, p_periodo text, p_resumo jsonb, p_hash text, p_codigo text default null)
 returns text language plpgsql security definer set search_path = public, extensions, pg_temp as $$
-declare v_codigo text; v_papel text := public.papel_atual();
+declare v_codigo text := upper(trim(coalesce(p_codigo, ''))); v_papel text := public.papel_atual(); v_hash text;
 begin
   if v_papel is null then raise exception 'SEM_PERMISSAO'; end if;
   if p_hash !~ '^[0-9a-f]{64}$' then raise exception 'HASH_INVALIDO'; end if;
-  loop
-    v_codigo := upper(encode(gen_random_bytes(6), 'hex'));
-    v_codigo := substr(v_codigo, 1, 4) || '-' || substr(v_codigo, 5, 4) || '-' || substr(v_codigo, 9, 4);
-    exit when not exists (select 1 from public.documentos_emitidos where codigo = v_codigo);
-  end loop;
+  if v_codigo <> '' then
+    if v_codigo !~ '^[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$' then raise exception 'CODIGO_INVALIDO'; end if;
+    select hash into v_hash from public.documentos_emitidos where codigo = v_codigo;
+    if found then
+      if v_hash = p_hash then return v_codigo; end if;       -- repetição idempotente
+      raise exception 'CODIGO_EXISTE';
+    end if;
+  else
+    loop
+      v_codigo := upper(encode(gen_random_bytes(6), 'hex'));
+      v_codigo := substr(v_codigo, 1, 4) || '-' || substr(v_codigo, 5, 4) || '-' || substr(v_codigo, 9, 4);
+      exit when not exists (select 1 from public.documentos_emitidos where codigo = v_codigo);
+    end loop;
+  end if;
   insert into public.documentos_emitidos (codigo, tipo, titulo, periodo, resumo, hash, emitido_por)
   values (v_codigo, p_tipo, left(p_titulo, 160), left(p_periodo, 160), coalesce(p_resumo, '{}'::jsonb), p_hash,
           case v_papel when 'admin' then 'Administração' else 'Gerência' end);
@@ -468,8 +469,8 @@ begin
                             'resumo', d.resumo, 'hash', d.hash, 'emitido_por', d.emitido_por, 'emitido_em', d.emitido_em);
 end $$;
 
-revoke all on function public.registrar_documento(text, text, text, jsonb, text) from public, anon;
-grant execute on function public.registrar_documento(text, text, text, jsonb, text) to authenticated;
+revoke all on function public.registrar_documento(text, text, text, jsonb, text, text) from public, anon;
+grant execute on function public.registrar_documento(text, text, text, jsonb, text, text) to authenticated;
 revoke all on function public.verificar_documento(text) from public;
 grant execute on function public.verificar_documento(text) to anon, authenticated;
 

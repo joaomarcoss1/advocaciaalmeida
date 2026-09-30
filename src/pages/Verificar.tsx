@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, BadgeCheck, ShieldAlert } from 'lucide-react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, BadgeCheck, Hourglass, ShieldAlert } from 'lucide-react';
 import marcaOuro from '@/assets/marca-ouro.png';
 import { getDb, type DocumentoVerificado } from '@/data/db';
 import { isoParaBR, fmtData } from '@/lib/datetime';
+import { lerPayloadDoSelo } from '@/lib/selo';
 
 const TIPO: Record<string, string> = { folha: 'Folha de pagamento', holerite: 'Demonstrativo de pagamento', frequencia: 'Relatório de frequência', espelho: 'Espelho de ponto' };
 const brl = (n: unknown) => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -12,8 +13,10 @@ const brl = (n: unknown) => Number(n).toLocaleString('pt-BR', { style: 'currency
 export default function Verificar() {
   const { codigo = '' } = useParams();
   const nav = useNavigate();
+  const [busca] = useSearchParams();
+  const previa = lerPayloadDoSelo(busca.get('d'));
   const [digitado, setDigitado] = useState(codigo);
-  const [estado, setEstado] = useState<'inicio' | 'buscando' | 'ok' | 'nao' | 'erro'>(codigo ? 'buscando' : 'inicio');
+  const [estado, setEstado] = useState<'inicio' | 'buscando' | 'ok' | 'pendente' | 'nao' | 'erro'>(codigo ? 'buscando' : 'inicio');
   const [doc, setDoc] = useState<DocumentoVerificado | null>(null);
 
   useEffect(() => {
@@ -21,9 +24,9 @@ export default function Verificar() {
     if (!codigo) { setEstado('inicio'); setDoc(null); return; }
     let vivo = true;
     setEstado('buscando');
-    getDb().then(db => db.documentos.verificar(codigo)).then(d => { if (!vivo) return; setDoc(d); setEstado(d ? 'ok' : 'nao'); }).catch(() => vivo && setEstado('erro'));
+    getDb().then(db => db.documentos.verificar(codigo)).then(d => { if (!vivo) return; setDoc(d); setEstado(d ? 'ok' : previa ? 'pendente' : 'nao'); }).catch(() => vivo && setEstado('erro'));
     return () => { vivo = false; };
-  }, [codigo]);
+  }, [codigo]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function enviar(e: FormEvent) {
     e.preventDefault();
@@ -62,6 +65,25 @@ export default function Verificar() {
                 <div><dt>Impressão digital (SHA-256)</dt><dd className="mono hash">{doc.hash}</dd></div>
               </dl>
               <p className="hint">Confira se o total acima é o mesmo do documento em mãos. Divergência indica que o arquivo foi alterado depois de emitido.</p>
+            </div>
+          </div>
+        )}
+        {estado === 'pendente' && previa && (
+          <div className="verif-res warn" role="status">
+            <Hourglass size={30} />
+            <div>
+              <strong>Selo ainda não confirmado pelo servidor</strong>
+              <p>Este documento foi emitido pelo sistema da Almeida Advocacia, mas o registro do selo ainda não chegou ao banco de dados (isso é concluído automaticamente na próxima vez que o sistema for aberto no escritório). Enquanto isso, confira os dados do QR Code com o documento em mãos:</p>
+              <dl>
+                <div><dt>Documento</dt><dd>{TIPO[previa.tipo] ?? previa.tipo}</dd></div>
+                <div><dt>Período</dt><dd>{previa.periodo}</dd></div>
+                {previa.resumo.funcionarios != null && <div><dt>Funcionários</dt><dd>{String(previa.resumo.funcionarios)}</dd></div>}
+                {previa.resumo.total_liquido != null && <div><dt>Total líquido</dt><dd>{brl(previa.resumo.total_liquido)}</dd></div>}
+                {previa.resumo.faltas != null && <div><dt>Faltas</dt><dd>{String(previa.resumo.faltas)}</dd></div>}
+                <div><dt>Código</dt><dd className="mono">{codigo}</dd></div>
+                <div><dt>Impressão digital (SHA-256)</dt><dd className="mono hash">{previa.hash}</dd></div>
+              </dl>
+              <p className="hint">Estes dados vêm do próprio QR Code e ainda não foram confirmados pelo servidor. Volte a esta página mais tarde: quando o registro chegar, ela passará a mostrar “Documento autêntico”.</p>
             </div>
           </div>
         )}

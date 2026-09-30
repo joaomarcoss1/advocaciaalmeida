@@ -59,13 +59,13 @@ function rodapePdf(doc: jsPDF, texto: string, selo?: Selo) {
     if (selo) doc.text(`${texto} · Página ${i} de ${n}`, w - 8, h - 6, { align: 'right' });
     else doc.text(`${texto} · Página ${i} de ${n}`, w / 2, h - 6, { align: 'center' });
     if (selo) {
-      const q = 15;
-      doc.addImage(selo.qr, 'PNG', 8, h - q - 4, q, q);
+      const q = 18;
+      doc.addImage(selo.qr, 'PNG', 8, h - q - 3, q, q);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...NAVY);
-      doc.text('AUTENTICIDADE', 8 + q + 3, h - 14.5);
+      doc.text('AUTENTICIDADE', 8 + q + 3, h - 15);
       doc.setFont('helvetica', 'normal'); doc.setTextColor(90, 102, 133);
-      doc.text(`Código ${selo.codigo}`, 8 + q + 3, h - 11);
-      doc.text(`Confira em ${selo.url.replace(/^https?:\/\//, '')}`, 8 + q + 3, h - 7.6);
+      doc.text(`Código ${selo.codigo}`, 8 + q + 3, h - 11.4);
+      doc.text(`Confira em ${selo.url.replace(/^https?:\/\//, '')}`, 8 + q + 3, h - 7.8);
     }
   }
 }

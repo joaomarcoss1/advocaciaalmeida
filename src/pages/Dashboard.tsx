@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
 import Presenca from '@/components/Presenca';
 import { Kpi, PageHeader } from '@/components/ui';
-import { useAuth } from '@/context/Auth';
 import { useDados } from '@/context/Dados';
 import { fmtData, nomeMes, primeiroDoMes, ultimoDoMes } from '@/lib/datetime';
 import { calcularPeriodo, situacaoHoje } from '@/lib/folhaLote';
@@ -11,12 +10,6 @@ import { brl } from '@/lib/format';
 
 export default function Dashboard() {
   const dados = useDados();
-  const { sessao } = useAuth();
-  const [semDoisFatores, setSemDoisFatores] = useState(false);
-  useEffect(() => {
-    if (!dados.db.auth.mfa.disponivel || sessao?.papel !== 'admin') return;
-    dados.db.auth.mfa.estado().then(e => setSemDoisFatores(!e.ativo)).catch(() => undefined);
-  }, [dados.db, sessao?.papel]);
   const { funcionarios, registros, feriados, agora } = dados;
   const ini = primeiroDoMes(agora.data), fim = ultimoDoMes(agora.data);
   const mes = useMemo(() => calcularPeriodo(dados, ini, fim), [dados, ini, fim]);
@@ -47,12 +40,6 @@ export default function Dashboard() {
         <Kpi label="Faltas no mês" valor={faltas} dica={`${atrasos} atraso(s)/saída(s) antecipada(s)`} alerta={faltas > 0} />
         <Kpi label="Folha do mês (prévia)" valor={brl(folha)} dica={<Link to="/painel/folha">Abrir folha</Link>} />
       </div>
-
-      {semDoisFatores && (
-        <div className="card card-pad" style={{ marginBottom: 18, borderColor: '#ecdcb4', background: 'var(--gold-tint)' }}>
-          <strong>Proteja sua conta de administrador.</strong> Ative a verificação em duas etapas: além da senha, o login pede um código do celular. <Link to="/painel/configuracoes?aba=seguranca">Ativar agora →</Link>
-        </div>
-      )}
 
       {alertas.length > 0 && (
         <div className="card card-pad" style={{ marginBottom: 18, borderColor: '#ecdcb4', background: 'var(--gold-tint)' }}>
