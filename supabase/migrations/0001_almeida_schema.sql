@@ -1,5 +1,5 @@
 -- =====================================================================
--- Almeida Advocacia & Consultoria · Plataforma Administrativa
+-- ALMEIDA ADVOCACIA PLATAFORMA ADMINISTRATIVA
 -- Schema completo: tabelas, RLS, RPCs do ponto e dados iniciais.
 -- Aplique em um projeto Supabase NOVO (SQL Editor ou `supabase db push`).
 -- =====================================================================

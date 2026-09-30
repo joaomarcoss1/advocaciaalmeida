@@ -27,7 +27,7 @@ export default function Login() {
       <img className="hero-logo" src={logo} alt="Almeida Advocacia & Consultoria" />
       <form className="panel stack" onSubmit={enviar}>
         <div>
-          <div className="eyebrow">Plataforma administrativa</div>
+          <div className="eyebrow">Almeida Advocacia · Plataforma Administrativa</div>
           <h1 className="page-title" style={{ marginTop: 4 }}>Entrar</h1>
           <p className="page-sub">Acesso da administração e da gerência.</p>
         </div>

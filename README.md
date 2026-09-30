@@ -1,4 +1,4 @@
-# Almeida Advocacia & Consultoria · Plataforma Administrativa
+# Almeida Advocacia Plataforma Administrativa
 
 Sistema interno do escritório (Codó/MA): cadastro da equipe, cargos, **escalas de segunda a sábado**, **registro de ponto por PIN**, ocorrências/abonos, feriados e **folha de pagamento calculada por diária**.
 
