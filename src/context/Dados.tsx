@@ -15,6 +15,8 @@ interface DadosCtx {
   agora: AgoraBR;
   /** true quando o banco ainda não tem as tabelas/colunas da última atualização. */
   atualizacaoPendente: boolean;
+  /** Mensagem técnica devolvida pelo banco quando a atualização está pendente. */
+  erroAtualizacao: string;
   recarregar(): Promise<void>;
   auditar(acao: string, detalhe?: string): Promise<void>;
 }
@@ -31,6 +33,7 @@ export function DadosProvider({ children }: { children: ReactNode }) {
   });
   const [agora, setAgora] = useState(agoraBR());
   const [atualizacaoPendente, setAtualizacaoPendente] = useState(false);
+  const [erroAtualizacao, setErroAtualizacao] = useState('');
 
   useEffect(() => { getDb().then(setDb); }, []);
   useEffect(() => { const t = setInterval(() => setAgora(agoraBR()), 30_000); return () => clearInterval(t); }, []);
@@ -39,8 +42,8 @@ export function DadosProvider({ children }: { children: ReactNode }) {
     if (!db || !sessao) return;
     const admin = sessao.papel === 'admin';
     // Tabela opcional (chegou numa atualização do banco): se ainda não existir, o painel segue funcionando.
-    let semAtualizacao = false;
-    const ajustesDiaP = db.ajustesDia.list().catch(() => { semAtualizacao = true; return [] as AjusteDia[]; });
+    let semAtualizacao = '';
+    const ajustesDiaP = db.ajustesDia.list().catch((e: Error) => { semAtualizacao = e.message || 'erro desconhecido'; return [] as AjusteDia[]; });
     const [cargos, escalas, func, registros, ocorrencias, feriados, config, ajustes, folhas, usuarios, ajustesDia] = await Promise.all([
       db.cargos.list(), db.escalas.list(),
       admin
@@ -55,7 +58,8 @@ export function DadosProvider({ children }: { children: ReactNode }) {
       admin ? db.usuarios.list() : Promise.resolve([] as Usuario[]),
       ajustesDiaP,
     ]);
-    setAtualizacaoPendente(semAtualizacao);
+    setAtualizacaoPendente(!!semAtualizacao);
+    setErroAtualizacao(semAtualizacao);
     setD({ cargos, escalas, funcionarios: func, registros, ocorrencias, feriados, config, ajustes, ajustesDia, folhas, usuarios });
     setAgora(agoraBR());
   }, [db, sessao]);
@@ -71,7 +75,7 @@ export function DadosProvider({ children }: { children: ReactNode }) {
     try { await db.auditoria.insert({ usuario: sessao.nome, acao, detalhe }); } catch { /* auditoria não deve travar a ação */ }
   }, [db, sessao]);
 
-  const valor = useMemo(() => (db ? { db, carregando, ...d, agora, atualizacaoPendente, recarregar, auditar } : null), [db, carregando, d, agora, atualizacaoPendente, recarregar, auditar]);
+  const valor = useMemo(() => (db ? { db, carregando, ...d, agora, atualizacaoPendente, erroAtualizacao, recarregar, auditar } : null), [db, carregando, d, agora, atualizacaoPendente, erroAtualizacao, recarregar, auditar]);
   if (!valor) return null;
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }

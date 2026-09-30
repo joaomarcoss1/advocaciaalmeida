@@ -5,6 +5,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import marcaOuro from '@/assets/marca-ouro.png';
+import sqlAtualizacao from '../../supabase/atualizacao_definitiva.sql?raw';
 import { useAuth } from '@/context/Auth';
 import { useDados } from '@/context/Dados';
 import { iniciais } from '@/lib/format';
@@ -52,7 +53,9 @@ function useRotulosDeTabela() {
 
 export default function Layout() {
   const { sessao, sair, modo } = useAuth();
-  const { registros, carregando, agora, atualizacaoPendente } = useDados();
+  const { registros, carregando, agora, atualizacaoPendente, erroAtualizacao, recarregar } = useDados();
+  const [copiado, setCopiado] = useState(false);
+  const [verificando, setVerificando] = useState(false);
   const [aberto, setAberto] = useState(false);
   const nav = useNavigate();
   const loc = useLocation();
@@ -117,7 +120,20 @@ export default function Layout() {
         <main className="content">
           {modo === 'local' && <div className="demo-banner" style={{ marginBottom: 20 }}><strong>Modo demonstração</strong> · dados fictícios, salvos só neste navegador.</div>}
           {papel === 'admin' && atualizacaoPendente && modo === 'supabase' && (
-            <div className="demo-banner" style={{ marginBottom: 20 }}><strong>Atualização do banco pendente.</strong> Rode o arquivo <code>atualizacao_definitiva.sql</code> no SQL Editor do Supabase (uma vez) para liberar ajustes de dia e diária fixa. <a href="/diagnostico">Diagnóstico</a></div>
+            <div className="demo-banner" style={{ marginBottom: 20 }}>
+              <strong>Atualização do banco pendente.</strong> O Supabase ainda não tem as tabelas novas (ajuste de dias, diária fixa) nem a correção do PIN.
+              <ol style={{ margin: '8px 0 10px 18px', padding: 0 }}>
+                <li>Clique em <em>Copiar SQL</em>.</li>
+                <li>No Supabase, abra <strong>SQL Editor → New query</strong>, cole e clique em <strong>Run</strong>.</li>
+                <li>Volte aqui e clique em <em>Verificar novamente</em>.</li>
+              </ol>
+              <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn sm" onClick={async () => { try { await navigator.clipboard.writeText(sqlAtualizacao); setCopiado(true); setTimeout(() => setCopiado(false), 3000); } catch { window.prompt('Copie o SQL (Ctrl+C):', sqlAtualizacao); } }}>{copiado ? 'SQL copiado ✓' : 'Copiar SQL'}</button>
+                <button className="btn ghost sm" disabled={verificando} onClick={async () => { setVerificando(true); try { await recarregar(); } finally { setVerificando(false); } }}>{verificando ? 'Verificando…' : 'Verificar novamente'}</button>
+                <a className="btn ghost sm" href="/diagnostico">Diagnóstico</a>
+              </div>
+              {erroAtualizacao && <p className="muted" style={{ margin: '8px 0 0', fontSize: '.8rem' }}>Resposta do banco: {erroAtualizacao}</p>}
+            </div>
           )}
           {carregando ? <p className="muted">Carregando…</p> : <Outlet />}
         </main>

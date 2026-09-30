@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { KeyRound, Pencil, Plus, Search, Trash2, UserMinus, UserPlus } from 'lucide-react';
 import { Badge, Field, Modal, PageHeader, useConfirm, useToast, Vazio } from '@/components/ui';
 import { useDados } from '@/context/Dados';
@@ -21,6 +22,17 @@ export default function Funcionarios() {
   const [filtro, setFiltro] = useState<'ativos' | 'inativos' | 'todos'>('ativos');
   const [ed, setEd] = useState<Form | null>(null);
   const [pinDe, setPinDe] = useState<Funcionario | null>(null);
+  const [params, setParams] = useSearchParams();
+  // Links do painel ("Pendências de cadastro") abrem direto a edição ou o PIN do funcionário.
+  useEffect(() => {
+    const idEditar = params.get('editar'), idPin = params.get('pin');
+    if (!idEditar && !idPin) return;
+    const f = funcionarios.find(x => x.id === (idEditar ?? idPin));
+    if (!f) return;
+    if (idEditar) setEd({ ...f, salarioTxt: f.salario_mensal > 0 ? String(f.salario_mensal).replace('.', ',') : '', diariaTxt: f.diaria_fixa ? String(f.diaria_fixa).replace('.', ',') : '' });
+    else { setPinDe(f); setPin(''); }
+    setParams({}, { replace: true });
+  }, [params, funcionarios, setParams]);
   const [pin, setPin] = useState('');
 
   const lista = useMemo(() => {

@@ -46,6 +46,12 @@ export default function Diagnostico() {
           add('Login no Supabase Auth', true, 'Usuário e senha corretos.');
           const p = await chamar(`/rest/v1/perfis?select=nome,email,papel,ativo&email=eq.${encodeURIComponent(email.trim().toLowerCase())}`, { headers: { Authorization: `Bearer ${corpo.access_token}` } });
           const linhas = Array.isArray(p.corpo) ? p.corpo as { papel: string; ativo: boolean }[] : [];
+          const cab = { Authorization: `Bearer ${corpo.access_token}` };
+          const aj = await chamar('/rest/v1/ajustes_dia?select=id&limit=1', { headers: cab });
+          add('Atualização do banco: ajuste de dias', aj.status === 200, aj.status === 200 ? 'Tabela ajustes_dia disponível.' : `Pendente: rode o SQL de atualização. (HTTP ${aj.status} ${JSON.stringify(aj.corpo).slice(0, 140)})`);
+          const fn = await chamar('/rest/v1/rpc/_admins_ativos', { method: 'POST', body: '{}', headers: cab });
+          const fnExiste = fn.status !== 404 && !JSON.stringify(fn.corpo).includes('PGRST202');
+          add('Atualização do banco: gestão de acessos', fnExiste, fnExiste ? 'Funções de criar/alterar usuários instaladas.' : `Pendente: rode o SQL de atualização. (HTTP ${fn.status})`);
           add('Perfil de acesso (tabela perfis)', linhas.length > 0 && linhas[0].ativo, linhas.length ? `papel=${linhas[0].papel} · ativo=${linhas[0].ativo}` : `Sem perfil para este usuário (HTTP ${p.status}). Rode o SQL que cria o perfil de administrador.`);
         } else {
           add('Login no Supabase Auth', false, `HTTP ${t.status} · ${corpo.error_code ?? ''} · ${corpo.msg ?? corpo.error_description ?? corpo.message ?? JSON.stringify(t.corpo).slice(0, 160)}`);

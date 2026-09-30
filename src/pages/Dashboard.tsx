@@ -20,10 +20,10 @@ export default function Dashboard() {
   const atrasos = mes.reduce((s, l) => s + l.calc.atrasos + l.calc.saidas_antecipadas, 0);
   const folha = mes.reduce((s, l) => s + l.calc.valor_final, 0);
   const proximos = feriados.filter(f => f.data >= agora.data).sort((a, b) => a.data.localeCompare(b.data)).slice(0, 4);
-  const alertas = [
-    ...ativos.filter(f => !f.tem_pin).map(f => `${f.nome} ainda não tem PIN de ponto.`),
-    ...ativos.filter(f => !f.escala_id).map(f => `${f.nome} está sem escala de trabalho.`),
-    ...ativos.filter(f => !(f.salario_mensal > 0)).map(f => `${f.nome} está sem salário cadastrado.`),
+  const alertas: { texto: string; para: string }[] = [
+    ...ativos.filter(f => !f.escala_id).map(f => ({ texto: `${f.nome} está sem escala de trabalho.`, para: `editar=${f.id}` })),
+    ...ativos.filter(f => !(f.salario_mensal > 0)).map(f => ({ texto: `${f.nome} está sem salário cadastrado.`, para: `editar=${f.id}` })),
+    ...ativos.filter(f => !f.tem_pin).map(f => ({ texto: `${f.nome} ainda não tem PIN de ponto.`, para: `pin=${f.id}` })),
   ];
   const maxOcorr = Math.max(1, ...mes.map(l => l.calc.faltas + l.calc.atrasos + l.calc.saidas_antecipadas));
 
@@ -43,7 +43,7 @@ export default function Dashboard() {
       {alertas.length > 0 && (
         <div className="card card-pad" style={{ marginBottom: 18, borderColor: '#ecdcb4', background: 'var(--gold-tint)' }}>
           <div className="row" style={{ color: 'var(--gold-deep)', marginBottom: 6 }}><AlertTriangle size={18} /><strong>Pendências de cadastro</strong></div>
-          <ul style={{ margin: 0, paddingLeft: 20 }}>{alertas.slice(0, 6).map(a => <li key={a}>{a}</li>)}</ul>
+          <ul style={{ margin: 0, paddingLeft: 20 }}>{alertas.slice(0, 6).map(a => <li key={a.texto}>{a.texto} <Link to={`/painel/funcionarios?${a.para}`}>Resolver</Link></li>)}</ul>{alertas.length > 6 && <p className="hint" style={{ margin: '6px 0 0' }}>e mais {alertas.length - 6} pendência(s).</p>}
           <Link to="/painel/funcionarios" className="hint">Ir para funcionários →</Link>
         </div>
       )}
