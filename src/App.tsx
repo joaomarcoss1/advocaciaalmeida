@@ -6,6 +6,7 @@ import { ConfirmProvider, ToastProvider } from '@/components/ui';
 import Layout from '@/components/Layout';
 import BaterPonto from '@/pages/BaterPonto';
 import Login from '@/pages/Login';
+import Diagnostico from '@/pages/Diagnostico';
 
 const Dashboard = lazy(() => import('@/pages/Dashboard'));
 const Gerencia = lazy(() => import('@/pages/Gerencia'));
@@ -40,6 +41,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<BaterPonto />} />
             <Route path="/entrar" element={<Login />} />
+            <Route path="/diagnostico" element={<Diagnostico />} />
             <Route path="/painel" element={<Protegido><DadosProvider><Layout /></DadosProvider></Protegido>}>
               <Route index element={<Suspense fallback={null}><Inicio /></Suspense>} />
               <Route path="gerencia" element={<Suspense fallback={null}><Gerencia /></Suspense>} />

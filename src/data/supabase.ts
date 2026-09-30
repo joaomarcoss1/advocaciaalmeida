@@ -120,11 +120,18 @@ export function criarDbSupabase(url: string, key: string): Db {
       sessao: sessaoAtual,
       async entrar(email, senha) {
         const { error } = await sb.auth.signInWithPassword({ email: email.trim(), password: senha });
-        if (error) throw new Error('E-mail ou senha incorretos.');
+        if (error) {
+          const m = (error.message || '').toLowerCase();
+          if (m.includes('invalid login credentials')) throw new Error('E-mail ou senha incorretos. Se acabou de criar o usuário, confirme no Supabase (Authentication → Users) que ele existe e está confirmado.');
+          if (m.includes('email not confirmed')) throw new Error('O e-mail deste usuário ainda não foi confirmado no Supabase (Authentication → Users → Confirm user).');
+          if (m.includes('invalid api key') || m.includes('apikey')) throw new Error('Chave do Supabase inválida na configuração do site (VITE_SUPABASE_ANON_KEY).');
+          if (m.includes('querying schema')) throw new Error('O Supabase não conseguiu ler este usuário (criado por SQL). Apague-o em Authentication → Users e recrie pelo botão Add user.');
+          throw new Error(`Falha ao entrar (${error.status ?? 'sem status'}): ${error.message}. Abra /diagnostico para ver os detalhes.`);
+        }
         const s = await sessaoAtual();
         if (!s) {
           await sb.auth.signOut();
-          throw new Error('Seu usuário não tem acesso ao painel. Peça ao administrador para liberar o acesso.');
+          throw new Error('O usuário existe, mas não tem perfil de acesso ativo (tabela "perfis"). Rode o SQL que cria o perfil de administrador.');
         }
         return s;
       },
