@@ -111,8 +111,9 @@ export default function Escalas() {
                 return (
                   <div className="escala-row" key={d}>
                     <label className="check"><input type="checkbox" checked={t.ativo} onChange={e => setDia(d, e.target.checked ? { ativo: true, entrada: t.entrada || '08:00', saida: t.saida || '18:00' } : { ativo: false })} /><strong>{DIA_LABEL[d]}</strong></label>
-                    {(['entrada', 'saida_intervalo', 'retorno_intervalo', 'saida'] as const).map(k => (
-                      <input key={k} className="input" type="time" disabled={!t.ativo} aria-label={`${DIA_LABEL[d]} ${k}`} value={t[k]} onChange={e => setDia(d, { [k]: e.target.value })} />
+                    {([['entrada', 'Entrada'], ['saida_intervalo', 'Saída p/ intervalo'], ['retorno_intervalo', 'Retorno'], ['saida', 'Saída']] as const).map(([k, rot]) => (
+                      <label key={k} className="tm"><span>{rot}</span>
+                        <input className="input" type="time" disabled={!t.ativo} aria-label={`${DIA_LABEL[d]} ${rot}`} value={t[k]} onChange={e => setDia(d, { [k]: e.target.value })} /></label>
                     ))}
                   </div>
                 );

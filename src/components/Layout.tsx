@@ -1,26 +1,53 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  BellRing, Briefcase, CalendarDays, CalendarOff, ClipboardCheck, Clock, FileBarChart, LayoutDashboard, LogOut, Menu, Settings, ShieldCheck, Smartphone, Users, Wallet,
+  Briefcase, CalendarDays, CalendarOff, ClipboardCheck, Clock, FileBarChart, LayoutDashboard, LogOut, Menu, Settings, ShieldCheck, Smartphone, Users, Wallet, X,
+  type LucideIcon,
 } from 'lucide-react';
 import marcaOuro from '@/assets/marca-ouro.png';
 import { useAuth } from '@/context/Auth';
 import { useDados } from '@/context/Dados';
 import { iniciais } from '@/lib/format';
 
-const ITENS = [
+interface Item { grupo?: string; to: string; fim?: boolean; rotulo: string; curto?: string; icone: LucideIcon; papeis: ('admin' | 'gerente')[]; pend?: boolean }
+const ITENS: Item[] = [
   { grupo: 'Visão geral', to: '/painel', fim: true, rotulo: 'Painel', icone: LayoutDashboard, papeis: ['admin'] },
   { to: '/painel/gerencia', rotulo: 'Gerência', icone: ShieldCheck, papeis: ['admin', 'gerente'], pend: true },
-  { grupo: 'Equipe', to: '/painel/funcionarios', rotulo: 'Funcionários', icone: Users, papeis: ['admin'] },
+  { grupo: 'Equipe', to: '/painel/funcionarios', rotulo: 'Funcionários', curto: 'Equipe', icone: Users, papeis: ['admin'] },
   { to: '/painel/cargos', rotulo: 'Cargos', icone: Briefcase, papeis: ['admin'] },
   { to: '/painel/escalas', rotulo: 'Escalas', icone: CalendarDays, papeis: ['admin', 'gerente'] },
-  { grupo: 'Frequência', to: '/painel/ponto', rotulo: 'Registros de ponto', icone: Clock, papeis: ['admin', 'gerente'] },
-  { to: '/painel/ocorrencias', rotulo: 'Ocorrências e abonos', icone: ClipboardCheck, papeis: ['admin', 'gerente'] },
+  { grupo: 'Frequência', to: '/painel/ponto', rotulo: 'Registros de ponto', curto: 'Ponto', icone: Clock, papeis: ['admin', 'gerente'] },
+  { to: '/painel/ocorrencias', rotulo: 'Ocorrências e abonos', curto: 'Ocorrências', icone: ClipboardCheck, papeis: ['admin', 'gerente'] },
   { to: '/painel/feriados', rotulo: 'Feriados', icone: CalendarOff, papeis: ['admin', 'gerente'] },
-  { grupo: 'Financeiro', to: '/painel/folha', rotulo: 'Folha de pagamento', icone: Wallet, papeis: ['admin'] },
+  { grupo: 'Financeiro', to: '/painel/folha', rotulo: 'Folha de pagamento', curto: 'Folha', icone: Wallet, papeis: ['admin'] },
   { to: '/painel/relatorios', rotulo: 'Relatórios', icone: FileBarChart, papeis: ['admin', 'gerente'] },
-  { grupo: 'Sistema', to: '/painel/configuracoes', rotulo: 'Configurações', icone: Settings, papeis: ['admin'] },
-] as const;
+  { grupo: 'Sistema', to: '/painel/configuracoes', rotulo: 'Configurações', curto: 'Ajustes', icone: Settings, papeis: ['admin'] },
+];
+// Atalhos da barra inferior no celular
+const ATALHOS: Record<'admin' | 'gerente', string[]> = {
+  admin: ['/painel', '/painel/ponto', '/painel/folha', '/painel/funcionarios'],
+  gerente: ['/painel/gerencia', '/painel/ponto', '/painel/ocorrencias', '/painel/escalas'],
+};
+
+/** Copia o texto dos cabeçalhos para cada célula (data-label), usado pelo CSS que transforma tabelas em cartões no celular. */
+function useRotulosDeTabela() {
+  useEffect(() => {
+    let raf = 0;
+    const aplicar = () => {
+      document.querySelectorAll<HTMLTableElement>('table.tbl').forEach(t => {
+        const cab = Array.from(t.querySelectorAll('thead th')).map(th => th.textContent?.trim() ?? '');
+        t.querySelectorAll('tbody tr, tfoot tr').forEach(tr => Array.from(tr.children).forEach((td, i) => {
+          const r = cab[i] ?? '';
+          if (td.getAttribute('data-label') !== r) td.setAttribute('data-label', r);
+        }));
+      });
+    };
+    aplicar();
+    const mo = new MutationObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(aplicar); });
+    mo.observe(document.body, { childList: true, subtree: true });
+    return () => { mo.disconnect(); cancelAnimationFrame(raf); };
+  }, []);
+}
 
 export default function Layout() {
   const { sessao, sair, modo } = useAuth();
@@ -28,56 +55,82 @@ export default function Layout() {
   const [aberto, setAberto] = useState(false);
   const nav = useNavigate();
   const loc = useLocation();
+  useRotulosDeTabela();
   useEffect(() => setAberto(false), [loc.pathname]);
+  useEffect(() => {
+    document.body.style.overflow = aberto ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [aberto]);
   if (!sessao) return null;
+
+  const papel = sessao.papel;
+  const visiveis = ITENS.filter(i => i.papeis.includes(papel));
+  const atalhos = ATALHOS[papel].map(to => visiveis.find(i => i.to === to)).filter((i): i is Item => !!i);
+  const atual = visiveis.find(i => i.to === loc.pathname);
   const pendentes = registros.filter(r => r.status_aprovacao === 'pendente').length;
   const dataExtenso = new Date(agora.iso).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Fortaleza' });
+  const inicio = papel === 'admin' ? '/painel' : '/painel/gerencia';
 
   return (
     <div className="shell">
       <header className="mobilebar">
-        <button onClick={() => setAberto(true)} aria-label="Abrir menu"><Menu /></button>
-        <img src={marcaOuro} alt="Almeida Advocacia" />
+        <button onClick={() => setAberto(true)} aria-label="Abrir menu"><Menu size={22} /></button>
+        <span className="titulo">{atual?.rotulo ?? 'Almeida Advocacia'}</span>
+        {pendentes > 0 && <NavLink to={papel === 'admin' ? '/painel/ponto' : '/painel/gerencia'} className="chip alert" style={{ marginRight: 6 }}>{pendentes} pendente(s)</NavLink>}
       </header>
+      <div className={`scrim ${aberto ? 'on' : ''}`} onClick={() => setAberto(false)} aria-hidden="true" />
+
       <aside className={`side ${aberto ? 'open' : ''}`} aria-label="Menu principal">
-        <NavLink to={sessao.papel === 'admin' ? '/painel' : '/painel/gerencia'} className="side-brand" onClick={() => setAberto(false)}>
-          <img src={marcaOuro} alt="Almeida Advocacia & Consultoria" />
-        </NavLink>
+        <div className="row between" style={{ flexWrap: 'nowrap' }}>
+          <NavLink to={inicio} className="side-brand" onClick={() => setAberto(false)}><img src={marcaOuro} alt="Almeida Advocacia & Consultoria" /></NavLink>
+          <button className="icon-btn menu-x" style={{ color: '#fff', display: aberto ? 'grid' : 'none' }} onClick={() => setAberto(false)} aria-label="Fechar menu"><X size={20} /></button>
+        </div>
         <nav className="nav">
-          {ITENS.filter(i => (i.papeis as readonly string[]).includes(sessao.papel)).map(i => (
+          {visiveis.map(i => (
             <span key={i.to} style={{ display: 'contents' }}>
-              {'grupo' in i && i.grupo && <div className="nav-group">{i.grupo}</div>}
-              <NavLink to={i.to} end={'fim' in i && i.fim} className={({ isActive }) => (isActive ? 'on' : '')}>
-                <i.icone size={19} strokeWidth={1.7} />{i.rotulo}
-                {'pend' in i && i.pend && pendentes > 0 && <span className="pill">{pendentes}</span>}
+              {i.grupo && <div className="nav-group">{i.grupo}</div>}
+              <NavLink to={i.to} end={i.fim} className={({ isActive }) => (isActive ? 'on' : '')}>
+                <i.icone size={18} strokeWidth={1.7} />{i.rotulo}
+                {i.pend && pendentes > 0 && <span className="pill">{pendentes}</span>}
               </NavLink>
             </span>
           ))}
           <div className="nav-group">Acesso</div>
-          <NavLink to="/"><Smartphone size={19} strokeWidth={1.7} />Tela de ponto</NavLink>
+          <NavLink to="/"><Smartphone size={18} strokeWidth={1.7} />Tela de ponto</NavLink>
         </nav>
         <div className="side-foot">
-          <span className="avatar" style={{ width: 40, height: 40, fontSize: '.95rem' }}>{iniciais(sessao.nome)}</span>
+          <span className="avatar">{iniciais(sessao.nome)}</span>
           <div style={{ minWidth: 0 }}>
             <div className="who">{sessao.nome}</div>
-            <div className="papel">{sessao.papel === 'admin' ? 'Administrador' : 'Gerência'}</div>
+            <div className="papel">{papel === 'admin' ? 'Administrador' : 'Gerência'}</div>
           </div>
           <button className="icon-btn" aria-label="Sair" title="Sair" onClick={async () => { await sair(); nav('/entrar'); }}><LogOut size={18} /></button>
         </div>
       </aside>
+
       <div className="main">
         <div className="topbar-desk">
           <span className="data">{dataExtenso}</span>
           <div className="row" style={{ gap: 10 }}>
-            {pendentes > 0 && <NavLink to={sessao.papel === 'admin' ? '/painel/ponto' : '/painel/gerencia'} className="chip alert"><BellRing size={15} />{pendentes} aprovação(ões) pendente(s)</NavLink>}
-            <span className="chip">{sessao.papel === 'admin' ? 'Administrador' : 'Gerência'}</span>
+            {pendentes > 0 && <NavLink to={papel === 'admin' ? '/painel/ponto' : '/painel/gerencia'} className="chip alert">{pendentes} aprovação(ões) pendente(s)</NavLink>}
+            <span className="chip">{papel === 'admin' ? 'Administrador' : 'Gerência'}</span>
           </div>
         </div>
         <main className="content">
-          {modo === 'local' && <div className="demo-banner" style={{ marginBottom: 22 }}><strong>Modo demonstração:</strong> dados fictícios salvos só neste navegador. Configure o Supabase (README) para usar o banco real.</div>}
+          {modo === 'local' && <div className="demo-banner" style={{ marginBottom: 20 }}><strong>Modo demonstração</strong> · dados fictícios, salvos só neste navegador.</div>}
           {carregando ? <p className="muted">Carregando…</p> : <Outlet />}
         </main>
       </div>
+
+      <nav className="bottomnav" aria-label="Atalhos">
+        {atalhos.map(i => (
+          <NavLink key={i.to} to={i.to} end={i.fim} className={({ isActive }) => (isActive ? 'on' : '')}>
+            <i.icone size={21} strokeWidth={1.7} />{i.curto ?? i.rotulo}
+            {i.pend && pendentes > 0 && <span className="badge-n">{pendentes}</span>}
+          </NavLink>
+        ))}
+        <button onClick={() => setAberto(true)} aria-label="Abrir menu completo"><Menu size={21} strokeWidth={1.7} />Menu</button>
+      </nav>
     </div>
   );
 }

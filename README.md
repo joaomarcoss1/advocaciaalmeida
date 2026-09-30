@@ -45,8 +45,8 @@ Login de demonstração: `admin@almeidaadvocacia.com.br` / `almeida2026` e `gere
 ## Usando o Supabase (banco real)
 
 1. Use um projeto Supabase novo, só para este sistema (URL: `https://svasbxhxhvcranejwxku.supabase.co`).
-2. Abra **SQL Editor**, cole todo o conteúdo de `supabase/migrations/0001_almeida_schema.sql` e execute (tabelas, RLS, funções de ponto, cargos e escalas iniciais).
-3. Em **Authentication → Users → Add user**, crie o e-mail e a senha do administrador. Depois, no SQL Editor:
+2. Abra **SQL Editor**, cole e execute, nesta ordem, `supabase/migrations/0001_almeida_schema.sql` e `supabase/migrations/0002_gestao_usuarios.sql` (tabelas, RLS, funções de ponto, cargos e escalas iniciais).
+3. Se ainda não houver administrador, em **Authentication → Users → Add user** crie o e-mail e a senha. Depois, no SQL Editor:
    ```sql
    insert into public.perfis (id, nome, email, papel)
    select id, 'Administrador', email, 'admin' from auth.users where email = 'SEU_EMAIL';
@@ -61,6 +61,10 @@ Login de demonstração: `admin@almeidaadvocacia.com.br` / `almeida2026` e `gere
 * O ponto é público, mas só por funções (`ponto_bater`, `ponto_historico`, `ponto_retroativo`) que exigem PIN e **bloqueiam por 10 min após 5 erros seguidos**.
 * Gerência lê ponto/ocorrências por RLS e a equipe pela função `equipe()`, que omite salário, CPF e dados bancários.
 * Teste do SQL: `supabase/run_rpc_tests.sh` sobe o schema num Postgres local (com um stub do schema `auth`) e exercita PIN, bloqueio, atraso, duplicidade, retroativo e permissões de `anon`/gerente/admin.
+
+## Acessos ao painel
+
+*Configurações → Acessos* (só administrador): criar usuário com e-mail e senha, escolher **Administrador** ou **Gerência**, ativar/desativar, redefinir senha e remover. Sempre sobra pelo menos um administrador ativo, e ninguém remove o próprio acesso. No Supabase isso é feito pelas funções `criar_usuario`, `atualizar_usuario`, `redefinir_senha_usuario` e `remover_usuario` (`supabase/migrations/0002_gestao_usuarios.sql`), que só respondem a administradores.
 
 ## Produção
 

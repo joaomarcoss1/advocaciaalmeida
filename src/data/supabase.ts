@@ -11,6 +11,13 @@ function falha(e: { message?: string } | null): never {
     MOTIVO_OBRIGATORIO: 'Informe o motivo da rejeição.',
     PIN_FORMATO: 'O PIN deve ter de 4 a 8 números.',
     NAO_ENCONTRADO: 'Registro não encontrado.',
+    EMAIL_EXISTE: 'Já existe um usuário com esse e-mail.',
+    EMAIL_INVALIDO: 'Informe um e-mail válido.',
+    SENHA_CURTA: 'A senha deve ter pelo menos 8 caracteres.',
+    PAPEL_INVALIDO: 'Papel inválido.',
+    NOME_OBRIGATORIO: 'Informe o nome.',
+    ULTIMO_ADMIN: 'Precisa existir pelo menos um administrador ativo.',
+    NAO_REMOVER_A_SI: 'Você não pode remover o seu próprio acesso.',
   };
   throw new Error(traduz[m] ?? m);
 }
@@ -64,10 +71,11 @@ export function criarDbSupabase(url: string, key: string): Db {
     },
   };
 
-  const usuarios: Crud<Usuario> = {
-    ...crud<Usuario>('perfis', 'nome'),
-    async insert() {
-      throw new Error('Crie o usuário em Authentication > Users do Supabase e depois vincule o papel na tabela "perfis" (veja o README).');
+  const usuarios = {
+    async list() {
+      const { data, error } = await sb.from('perfis').select('id,nome,email,papel,ativo').order('nome');
+      if (error) falha(error);
+      return (data ?? []) as Usuario[];
     },
   };
 
@@ -121,6 +129,12 @@ export function criarDbSupabase(url: string, key: string): Db {
         return s;
       },
       async sair() { await sb.auth.signOut(); },
+    },
+    acessos: {
+      async criar(a) { await rpc('criar_usuario', { p_email: a.email, p_senha: a.senha, p_nome: a.nome, p_papel: a.papel }); },
+      async atualizar(id, a) { await rpc('atualizar_usuario', { p_id: id, p_nome: a.nome, p_papel: a.papel, p_ativo: a.ativo }); },
+      async redefinirSenha(id, senha) { await rpc('redefinir_senha_usuario', { p_id: id, p_senha: senha }); },
+      async remover(id) { await rpc('remover_usuario', { p_id: id }); },
     },
     equipe: () => rpc<FuncionarioBasico[]>('equipe'),
     async definirPin(fid, pin) { await rpc('definir_pin', { p_func_id: fid, p_pin: pin }); },

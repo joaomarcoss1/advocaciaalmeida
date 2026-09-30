@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, Coffee, Delete, History, Lock, LogIn, LogOut, MapPin, RotateCcw, Search, Undo2, UserSearch, X } from 'lucide-react';
 import marcaOuro from '@/assets/marca-ouro.png';
-import monograma from '@/assets/monograma-ouro.png';
 import { getDb, PONTO_ERRO_MSG, type ContextoPonto, type MarcacaoHistorico, type PessoaPonto } from '@/data/db';
 import { addDays, agoraBR, fmtData, isoParaBR, type AgoraBR } from '@/lib/datetime';
 import { iniciais, minParaHoras, semAcento } from '@/lib/format';
@@ -184,7 +183,6 @@ export default function BaterPonto() {
           {ctx?.feriado && <span className="feriado">Feriado · {ctx.feriado}</span>}
         </div>
         <div className="stage-foot">Codó · Maranhão</div>
-        <img className="mark" src={monograma} alt="" />
       </section>
 
       <section className="auth-side">
@@ -248,7 +246,7 @@ export default function BaterPonto() {
                 <button onClick={() => setPin(p => (p.length < 8 ? p + '0' : p))}>0</button>
                 <button className="aux" aria-label="Apagar" onClick={() => setPin(p => p.slice(0, -1))}><Delete size={22} /></button>
               </div>
-              <button className="btn gold block" style={{ minHeight: 52 }} disabled={pin.length < 4 || enviando} onClick={validarPin}>{enviando ? 'Verificando…' : 'Continuar'}</button>
+              <button className="btn block" style={{ minHeight: 50 }} disabled={pin.length < 4 || enviando} onClick={validarPin}>{enviando ? 'Verificando…' : 'Continuar'}</button>
               <button className="btn ghost block" onClick={voltar}><ArrowLeft size={16} />Não sou eu</button>
             </div>
           )}
@@ -302,8 +300,8 @@ export default function BaterPonto() {
                   <div className="card card-pad" style={{ background: 'var(--navy-tint)', boxShadow: 'none' }}>
                     <div className="section-title">{TIPO_MARCACAO_LABEL[escolha]}</div>
                     <div className="row between" style={{ marginTop: 10 }}>
-                      <span>Previsto <strong className="serif" style={{ fontSize: '1.5rem' }}>{previa.previsto ?? '—'}</strong></span>
-                      <span>Agora <strong className="serif" style={{ fontSize: '1.5rem' }}>{agora.hhmm}</strong></span>
+                      <span>Previsto <strong style={{ fontSize: '1.3rem', fontWeight: 500 }}>{previa.previsto ?? '—'}</strong></span>
+                      <span>Agora <strong style={{ fontSize: '1.3rem', fontWeight: 500 }}>{agora.hhmm}</strong></span>
                     </div>
                     <div style={{ marginTop: 10 }}>
                       <span className={`badge ${previa.status === 'atraso' || previa.status === 'saida_antecipada' ? 'bad' : previa.status === 'extra' ? 'gold' : 'ok'}`}>
@@ -318,7 +316,7 @@ export default function BaterPonto() {
                     </div>
                   )}
                   {ctx?.ponto.geofence_ativo && <p className="hint"><MapPin size={14} style={{ verticalAlign: 'middle' }} /> Sua localização será verificada.</p>}
-                  <button className="btn gold block" style={{ minHeight: 52 }} disabled={enviando || (exigeJustificativa(previa.status) && just.trim().length < 3)} onClick={confirmar}>
+                  <button className="btn block" style={{ minHeight: 50 }} disabled={enviando || (exigeJustificativa(previa.status) && just.trim().length < 3)} onClick={confirmar}>
                     {enviando ? 'Registrando…' : 'Confirmar registro'}
                   </button>
                   <button className="btn ghost block" onClick={() => { setEscolha(null); setJust(''); }}>Cancelar</button>

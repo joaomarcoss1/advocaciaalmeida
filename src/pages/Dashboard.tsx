@@ -1,10 +1,8 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CalendarX2, ClipboardCheck, Users, Wallet } from 'lucide-react';
-import monograma from '@/assets/monograma-ouro.png';
-import { useAuth } from '@/context/Auth';
+import { AlertTriangle } from 'lucide-react';
 import Presenca from '@/components/Presenca';
-import { Kpi } from '@/components/ui';
+import { Kpi, PageHeader } from '@/components/ui';
 import { useDados } from '@/context/Dados';
 import { fmtData, nomeMes, primeiroDoMes, ultimoDoMes } from '@/lib/datetime';
 import { calcularPeriodo, situacaoHoje } from '@/lib/folhaLote';
@@ -12,7 +10,6 @@ import { brl } from '@/lib/format';
 
 export default function Dashboard() {
   const dados = useDados();
-  const { sessao } = useAuth();
   const { funcionarios, registros, feriados, agora } = dados;
   const ini = primeiroDoMes(agora.data), fim = ultimoDoMes(agora.data);
   const mes = useMemo(() => calcularPeriodo(dados, ini, fim), [dados, ini, fim]);
@@ -28,26 +25,19 @@ export default function Dashboard() {
     ...ativos.filter(f => !f.escala_id).map(f => `${f.nome} está sem escala de trabalho.`),
     ...ativos.filter(f => !(f.salario_mensal > 0)).map(f => `${f.nome} está sem salário cadastrado.`),
   ];
-  const saudacao = agora.minutos < 12 * 60 ? 'Bom dia' : agora.minutos < 18 * 60 ? 'Boa tarde' : 'Boa noite';
   const maxOcorr = Math.max(1, ...mes.map(l => l.calc.faltas + l.calc.atrasos + l.calc.saidas_antecipadas));
 
   return (
     <>
-      <section className="welcome">
-        <img className="mark" src={monograma} alt="" />
-        <span className="eyebrow" style={{ color: 'var(--gold)' }}>{nomeMes(agora.data)}</span>
-        <h2 style={{ marginTop: 10 }}>{saudacao}, <em>{sessao?.nome.split(' ')[0]}</em>.</h2>
-        <p>{pendentes ? `${pendentes} ajuste(s) de ponto aguardam a sua análise.` : 'Nenhuma pendência de aprovação.'} {faltas ? `${faltas} falta(s) registrada(s) no mês.` : 'Sem faltas no mês.'}</p>
-        <div className="actions">
-          <Link to="/painel/folha" className="btn gold"><Wallet size={18} />Abrir folha do mês</Link>
-          <Link to="/painel/ponto" className="btn ghost"><ClipboardCheck size={18} />Registros de ponto</Link>
-        </div>
-      </section>
+      <PageHeader titulo="Painel" sub={`${nomeMes(agora.data)} · atualizado às ${agora.hhmm}`}>
+        <Link to="/painel/ponto" className="btn ghost">Registros de ponto</Link>
+        <Link to="/painel/folha" className="btn">Folha do mês</Link>
+      </PageHeader>
       <div className="grid c4" style={{ marginBottom: 22 }}>
-        <Kpi icone={<Users size={18} />} label="Equipe ativa" valor={ativos.length} dica={`${trabalhando} trabalhando agora`} />
-        <Kpi icone={<ClipboardCheck size={18} />} label="Aprovações pendentes" valor={pendentes} dica={pendentes ? <Link to="/painel/ponto">Analisar ajustes de ponto</Link> : 'Tudo em dia'} alerta={pendentes > 0} />
-        <Kpi icone={<CalendarX2 size={18} />} label="Faltas no mês" valor={faltas} dica={`${atrasos} atraso(s)/saída(s) antecipada(s)`} alerta={faltas > 0} />
-        <Kpi icone={<Wallet size={18} />} label="Folha do mês (prévia)" valor={brl(folha)} dica={<Link to="/painel/folha">Abrir folha</Link>} />
+        <Kpi label="Equipe ativa" valor={ativos.length} dica={`${trabalhando} trabalhando agora`} />
+        <Kpi label="Aprovações pendentes" valor={pendentes} dica={pendentes ? <Link to="/painel/ponto">Analisar ajustes de ponto</Link> : 'Tudo em dia'} alerta={pendentes > 0} />
+        <Kpi label="Faltas no mês" valor={faltas} dica={`${atrasos} atraso(s)/saída(s) antecipada(s)`} alerta={faltas > 0} />
+        <Kpi label="Folha do mês (prévia)" valor={brl(folha)} dica={<Link to="/painel/folha">Abrir folha</Link>} />
       </div>
 
       {alertas.length > 0 && (
@@ -70,12 +60,12 @@ export default function Dashboard() {
                   <div className="row between" style={{ fontSize: '.9rem' }}><span>{l.func.nome.split(' ').slice(0, 2).join(' ')}</span><span className="mono muted">{l.calc.faltas} falta(s) · {l.calc.atrasos + l.calc.saidas_antecipadas} atraso(s)</span></div>
                   <div style={{ height: 8, background: 'var(--navy-tint)', borderRadius: 99, overflow: 'hidden', display: 'flex' }} title={`${n} ocorrência(s)`}>
                     <div style={{ width: `${(l.calc.faltas / maxOcorr) * 100}%`, background: 'var(--bad)' }} />
-                    <div style={{ width: `${((l.calc.atrasos + l.calc.saidas_antecipadas) / maxOcorr) * 100}%`, background: 'var(--gold)' }} />
+                    <div style={{ width: `${((l.calc.atrasos + l.calc.saidas_antecipadas) / maxOcorr) * 100}%`, background: '#9fb0d6' }} />
                   </div>
                 </div>
               );
             })}
-            <div className="row hint" style={{ marginTop: 6 }}><span><span className="dot" style={{ display: 'inline-block', background: 'var(--bad)' }} /> Faltas</span><span><span className="dot" style={{ display: 'inline-block' }} /> Atrasos</span></div>
+            <div className="row hint" style={{ marginTop: 6 }}><span><span className="dot" style={{ display: 'inline-block', background: 'var(--bad)' }} /> Faltas</span><span><span className="dot" style={{ display: 'inline-block', background: '#9fb0d6' }} /> Atrasos</span></div>
           </div>
           <div className="card card-pad">
             <div className="section-title" style={{ marginBottom: 10 }}>Próximos feriados</div>

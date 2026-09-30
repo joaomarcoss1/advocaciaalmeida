@@ -17,5 +17,12 @@ grant usage on schema public, auth to anon, authenticated;
 alter default privileges in schema public grant all on tables to anon, authenticated;
 alter default privileges in schema public grant execute on functions to anon, authenticated;
 SQL
+$P -d almeida_test <<'SQL'
+create table auth.identities (id uuid primary key, user_id uuid references auth.users(id) on delete cascade, identity_data jsonb, provider text, provider_id text, last_sign_in_at timestamptz, created_at timestamptz, updated_at timestamptz);
+alter table auth.users add column instance_id uuid, add column aud text, add column role text, add column encrypted_password text, add column email_confirmed_at timestamptz,
+  add column raw_app_meta_data jsonb, add column raw_user_meta_data jsonb, add column created_at timestamptz, add column updated_at timestamptz,
+  add column confirmation_token text, add column recovery_token text, add column email_change_token_new text, add column email_change text;
+SQL
 $P -d almeida_test -f migrations/0001_almeida_schema.sql
-psql -q -X -d almeida_test -f tests_rpc.sql 2>&1 | sed 's/^psql:[^ ]* //' | grep -v '^CONTEXT\|^SQL statement\|^PL/pgSQL'
+$P -d almeida_test -f migrations/0002_gestao_usuarios.sql
+for f in tests_rpc.sql tests_usuarios.sql; do psql -q -X -d almeida_test -f $f 2>&1 | sed 's/^psql:[^ ]* //' | grep -v '^CONTEXT\|^SQL statement\|^PL/pgSQL'; done

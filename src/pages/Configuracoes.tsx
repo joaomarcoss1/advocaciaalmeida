@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Crosshair, Download, RotateCcw, Trash2 } from 'lucide-react';
+import { Crosshair, Download, Eye, EyeOff, KeyRound, RotateCcw, Trash2, Wand2 } from 'lucide-react';
 import { Abas, Badge, Field, Modal, PageHeader, useConfirm, useToast, Vazio } from '@/components/ui';
+import { useAuth } from '@/context/Auth';
 import { useDados } from '@/context/Dados';
 import { mesclarConfig } from '@/lib/config';
 import { isoParaBR, fmtData } from '@/lib/datetime';
@@ -10,11 +11,14 @@ type Aba = 'escritorio' | 'ponto' | 'folha' | 'acessos' | 'auditoria' | 'dados';
 
 export default function Configuracoes() {
   const { db, config, usuarios, recarregar, auditar } = useDados();
+  const { sessao } = useAuth();
   const toast = useToast();
   const confirmar = useConfirm();
   const [aba, setAba] = useState<Aba>('escritorio');
   const [c, setC] = useState<Config>(config);
   const [novo, setNovo] = useState<{ nome: string; email: string; papel: Papel; senha: string } | null>(null);
+  const [verSenha, setVerSenha] = useState(false);
+  const [senhaDe, setSenhaDe] = useState<{ u: Usuario; senha: string } | null>(null);
   const [logs, setLogs] = useState<Auditoria[]>([]);
   useEffect(() => setC(config), [config]);
   useEffect(() => { if (aba === 'auditoria') db.auditoria.list().then(l => setLogs(l.sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 80))); }, [aba, db]);
@@ -29,17 +33,34 @@ export default function Configuracoes() {
       p => setC({ ...c, ponto: { ...c.ponto, geofence_lat: Number(p.coords.latitude.toFixed(6)), geofence_lng: Number(p.coords.longitude.toFixed(6)) } }),
       () => toast.erro('Não foi possível obter a localização. Verifique a permissão do navegador.'), { enableHighAccuracy: true, timeout: 12000 });
   }
+  const gerarSenha = () => {
+    const alfa = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+    return Array.from(crypto.getRandomValues(new Uint32Array(12))).map(n => alfa[n % alfa.length]).join('');
+  };
   async function criarUsuario() {
     if (!novo) return;
-    if (!novo.nome.trim() || !novo.email.trim()) return toast.erro('Informe nome e e-mail.');
-    try { await db.usuarios.insert({ nome: novo.nome.trim(), email: novo.email, papel: novo.papel, senha: novo.senha } as Partial<Usuario>); await auditar('Acesso criado', `${novo.email} (${novo.papel})`); toast.ok('Acesso criado.'); setNovo(null); await recarregar(); }
+    try {
+      await db.acessos.criar({ nome: novo.nome, email: novo.email, papel: novo.papel, senha: novo.senha });
+      await auditar('Acesso criado', `${novo.email} (${novo.papel})`);
+      toast.ok(`Acesso criado para ${novo.email}.`); setNovo(null); setVerSenha(false); await recarregar();
+    } catch (e) { toast.erro((e as Error).message); }
+  }
+  async function salvarAcesso(u: Usuario, mudanca: Partial<Pick<Usuario, 'papel' | 'ativo'>>) {
+    try {
+      await db.acessos.atualizar(u.id, { nome: u.nome, papel: mudanca.papel ?? u.papel, ativo: mudanca.ativo ?? u.ativo });
+      await auditar('Acesso alterado', `${u.email}: ${JSON.stringify(mudanca)}`); await recarregar();
+      toast.ok('Acesso atualizado.');
+    } catch (e) { toast.erro((e as Error).message); await recarregar(); }
+  }
+  async function redefinir() {
+    if (!senhaDe) return;
+    try { await db.acessos.redefinirSenha(senhaDe.u.id, senhaDe.senha); await auditar('Senha redefinida', senhaDe.u.email); toast.ok('Senha redefinida.'); setSenhaDe(null); setVerSenha(false); }
     catch (e) { toast.erro((e as Error).message); }
   }
-  async function alternar(u: Usuario) { await db.usuarios.update(u.id, { ativo: !u.ativo }); await auditar(u.ativo ? 'Acesso desativado' : 'Acesso reativado', u.email); await recarregar(); }
   async function excluirUsuario(u: Usuario) {
-    if (usuarios.filter(x => x.papel === 'admin' && x.ativo).length <= 1 && u.papel === 'admin') return toast.erro('Mantenha pelo menos um administrador ativo.');
-    if (!(await confirmar(`Remover o acesso de ${u.email}?`, { perigo: true, rotulo: 'Remover' }))) return;
-    await db.usuarios.remove(u.id); await auditar('Acesso removido', u.email); await recarregar();
+    if (!(await confirmar(`Remover definitivamente o acesso de ${u.email}?`, { perigo: true, rotulo: 'Remover' }))) return;
+    try { await db.acessos.remover(u.id); await auditar('Acesso removido', u.email); toast.ok('Acesso removido.'); await recarregar(); }
+    catch (e) { toast.erro((e as Error).message); }
   }
   async function backup() {
     const dump: Record<string, unknown> = {};
@@ -104,18 +125,31 @@ export default function Configuracoes() {
             {salvarBtn}</>)}
 
           {aba === 'acessos' && (<>
-            <div className="row between"><p className="muted">Quem pode entrar no painel. <strong>Administrador</strong> vê tudo; <strong>Gerência</strong> acompanha ponto, escalas e ocorrências, sem acesso a salários e folha.</p>
-              {db.modo === 'local' && <button className="btn gold" onClick={() => setNovo({ nome: '', email: '', papel: 'gerente', senha: '' })}>Novo acesso</button>}</div>
-            {db.modo === 'supabase' && <div className="demo-banner">Para criar um acesso: cadastre o usuário em <strong>Authentication → Users</strong> no Supabase e insira o papel na tabela <code>perfis</code> (passo a passo no README). Aqui você pode ativar, desativar e remover.</div>}
-            <div className="table-wrap"><table className="tbl">
-              <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Situação</th><th /></tr></thead>
-              <tbody>{usuarios.map(u => (
-                <tr key={u.id}><td><strong>{u.nome}</strong></td><td>{u.email}</td><td><Badge tom={u.papel === 'admin' ? 'gold' : ''}>{u.papel === 'admin' ? 'Administrador' : 'Gerência'}</Badge></td>
-                  <td><Badge tom={u.ativo ? 'ok' : 'mute'}>{u.ativo ? 'Ativo' : 'Inativo'}</Badge></td>
-                  <td className="right"><button className="btn ghost sm" onClick={() => alternar(u)}>{u.ativo ? 'Desativar' : 'Reativar'}</button>{' '}
-                    <button className="icon-btn" aria-label={`Remover ${u.email}`} onClick={() => excluirUsuario(u)}><Trash2 size={17} /></button></td></tr>
-              ))}</tbody>
-            </table>{!usuarios.length && <Vazio>Nenhum acesso cadastrado.</Vazio>}</div></>)}
+            <div className="row between">
+              <p className="muted" style={{ maxWidth: '60ch' }}>Quem pode entrar no painel. <strong>Administrador</strong> tem acesso total, inclusive a salários, folha e a esta tela. <strong>Gerência</strong> acompanha ponto, escalas e ocorrências, sem salários.</p>
+              <button className="btn" onClick={() => { setNovo({ nome: '', email: '', papel: 'admin', senha: '' }); setVerSenha(false); }}>Novo acesso</button>
+            </div>
+            <div className="card" style={{ overflow: 'hidden' }}>
+              <div className="table-wrap"><table className="tbl">
+                <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Situação</th><th /></tr></thead>
+                <tbody>{usuarios.map(u => (
+                  <tr key={u.id}>
+                    <td><strong>{u.nome}</strong>{u.id === sessao?.id && <> <Badge tom="gold">você</Badge></>}</td>
+                    <td className="muted">{u.email}</td>
+                    <td>
+                      <select className="select" style={{ minHeight: 38, maxWidth: 170 }} value={u.papel} aria-label={`Papel de ${u.nome}`} onChange={e => salvarAcesso(u, { papel: e.target.value as Papel })}>
+                        <option value="admin">Administrador</option><option value="gerente">Gerência</option>
+                      </select>
+                    </td>
+                    <td><button className={`btn sm ${u.ativo ? 'ghost' : ''}`} onClick={() => salvarAcesso(u, { ativo: !u.ativo })}>{u.ativo ? 'Ativo' : 'Inativo'}</button></td>
+                    <td className="right" style={{ whiteSpace: 'nowrap' }}>
+                      <button className="icon-btn" title="Redefinir senha" aria-label={`Redefinir senha de ${u.email}`} onClick={() => { setSenhaDe({ u, senha: '' }); setVerSenha(false); }}><KeyRound size={18} /></button>
+                      <button className="icon-btn" title="Remover" aria-label={`Remover ${u.email}`} onClick={() => excluirUsuario(u)}><Trash2 size={18} /></button>
+                    </td>
+                  </tr>
+                ))}</tbody>
+              </table>{!usuarios.length && <Vazio>Nenhum acesso cadastrado.</Vazio>}</div>
+            </div></>)}
 
           {aba === 'auditoria' && (
             <div className="table-wrap"><table className="tbl">
@@ -134,9 +168,34 @@ export default function Configuracoes() {
         <Modal titulo="Novo acesso ao painel" onClose={() => setNovo(null)} rodape={<><button className="btn ghost" onClick={() => setNovo(null)}>Cancelar</button><button className="btn" onClick={criarUsuario}>Criar acesso</button></>}>
           <div className="stack">
             <Field label="Nome"><input className="input" value={novo.nome} onChange={e => setNovo({ ...novo, nome: e.target.value })} autoFocus /></Field>
-            <Field label="E-mail"><input className="input" type="email" value={novo.email} onChange={e => setNovo({ ...novo, email: e.target.value })} /></Field>
-            <Field label="Papel"><select className="select" value={novo.papel} onChange={e => setNovo({ ...novo, papel: e.target.value as Papel })}><option value="gerente">Gerência</option><option value="admin">Administrador</option></select></Field>
-            <Field label="Senha (mín. 6 caracteres)"><input className="input" type="password" autoComplete="new-password" value={novo.senha} onChange={e => setNovo({ ...novo, senha: e.target.value })} /></Field>
+            <Field label="E-mail (será o login)"><input className="input" type="email" inputMode="email" autoCapitalize="none" value={novo.email} onChange={e => setNovo({ ...novo, email: e.target.value })} /></Field>
+            <div className="field">
+              <label>Papel</label>
+              <label className={`role-opt ${novo.papel === 'admin' ? 'on' : ''}`}><input type="radio" name="papel" checked={novo.papel === 'admin'} onChange={() => setNovo({ ...novo, papel: 'admin' })} /><span><strong>Administrador</strong><br /><span className="muted">Acesso total: salários, folha, configurações e gestão de acessos.</span></span></label>
+              <label className={`role-opt ${novo.papel === 'gerente' ? 'on' : ''}`}><input type="radio" name="papel" checked={novo.papel === 'gerente'} onChange={() => setNovo({ ...novo, papel: 'gerente' })} /><span><strong>Gerência</strong><br /><span className="muted">Aprova ponto, registra ocorrências e vê escalas. Não vê salários nem folha.</span></span></label>
+            </div>
+            <Field label="Senha inicial (mín. 8 caracteres)" dica="Combine letras e números. Anote e repasse com segurança; o usuário pode pedir a troca depois.">
+              <div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
+                <input className="input" type={verSenha ? 'text' : 'password'} autoComplete="new-password" value={novo.senha} onChange={e => setNovo({ ...novo, senha: e.target.value })} />
+                <button type="button" className="icon-btn" aria-label={verSenha ? 'Ocultar senha' : 'Mostrar senha'} onClick={() => setVerSenha(v => !v)}>{verSenha ? <EyeOff size={18} /> : <Eye size={18} />}</button>
+                <button type="button" className="icon-btn" aria-label="Gerar senha forte" title="Gerar senha forte" onClick={() => { setNovo({ ...novo, senha: gerarSenha() }); setVerSenha(true); }}><Wand2 size={18} /></button>
+              </div>
+            </Field>
+          </div>
+        </Modal>
+      )}
+
+      {senhaDe && (
+        <Modal titulo="Redefinir senha" onClose={() => setSenhaDe(null)} rodape={<><button className="btn ghost" onClick={() => setSenhaDe(null)}>Cancelar</button><button className="btn" disabled={senhaDe.senha.length < 8} onClick={redefinir}>Salvar nova senha</button></>}>
+          <div className="stack">
+            <p>Usuário: <strong>{senhaDe.u.nome}</strong> <span className="muted">· {senhaDe.u.email}</span></p>
+            <Field label="Nova senha (mín. 8 caracteres)">
+              <div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
+                <input className="input" type={verSenha ? 'text' : 'password'} autoComplete="new-password" value={senhaDe.senha} onChange={e => setSenhaDe({ ...senhaDe, senha: e.target.value })} autoFocus />
+                <button type="button" className="icon-btn" aria-label={verSenha ? 'Ocultar senha' : 'Mostrar senha'} onClick={() => setVerSenha(v => !v)}>{verSenha ? <EyeOff size={18} /> : <Eye size={18} />}</button>
+                <button type="button" className="icon-btn" aria-label="Gerar senha forte" title="Gerar senha forte" onClick={() => { setSenhaDe({ ...senhaDe, senha: gerarSenha() }); setVerSenha(true); }}><Wand2 size={18} /></button>
+              </div>
+            </Field>
           </div>
         </Modal>
       )}

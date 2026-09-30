@@ -89,14 +89,34 @@ export function criarDbLocal(): Db {
     feriados: crud('feriados'),
     ajustes: crud('ajustes'),
     folhas,
-    usuarios: {
-      ...usuarios,
-      async insert(row) {
-        const { senha, ...resto } = row as Partial<Usuario> & { senha?: string };
-        if (!senha || senha.length < 6) throw new Error('Informe uma senha com pelo menos 6 caracteres.');
-        const email = String(resto.email ?? '').trim().toLowerCase();
+    usuarios: { list: () => usuarios.list() },
+    acessos: {
+      async criar(a) {
+        const email = a.email.trim().toLowerCase();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Informe um e-mail válido.');
+        if (a.senha.length < 8) throw new Error('A senha deve ter pelo menos 8 caracteres.');
+        if (a.nome.trim().length < 2) throw new Error('Informe o nome.');
         if ((await usuarios.list()).some(u => u.email === email)) throw new Error('Já existe um usuário com esse e-mail.');
-        return usuarios.insert({ ...resto, email, ativo: true, senha_hash: await hashSecreto(email, senha) });
+        await usuarios.insert({ nome: a.nome.trim(), email, papel: a.papel, ativo: true, senha_hash: await hashSecreto(email, a.senha) });
+      },
+      async atualizar(id, a) {
+        const todos = await usuarios.list();
+        const restantes = todos.filter(u => u.id !== id && u.papel === 'admin' && u.ativo).length + (a.papel === 'admin' && a.ativo ? 1 : 0);
+        if (restantes < 1) throw new Error('Precisa existir pelo menos um administrador ativo.');
+        await usuarios.update(id, { nome: a.nome.trim() || undefined, papel: a.papel, ativo: a.ativo } as Partial<Usuario>);
+      },
+      async redefinirSenha(id, senha) {
+        if (senha.length < 8) throw new Error('A senha deve ter pelo menos 8 caracteres.');
+        const u = (await usuarios.list()).find(x => x.id === id);
+        if (!u) throw new Error('Registro não encontrado.');
+        await usuarios.update(id, { senha_hash: await hashSecreto(u.email, senha) });
+      },
+      async remover(id) {
+        const sessao = await db.auth.sessao();
+        if (sessao?.id === id) throw new Error('Você não pode remover o seu próprio acesso.');
+        const todos = await usuarios.list();
+        if (todos.filter(u => u.id !== id && u.papel === 'admin' && u.ativo).length < 1) throw new Error('Precisa existir pelo menos um administrador ativo.');
+        await usuarios.remove(id);
       },
     },
     auditoria: crud<Auditoria>('auditoria'),

@@ -11,9 +11,7 @@
     "typecheck": "tsc -b --noEmit"
   },
   "dependencies": {
-    "@fontsource/cormorant-garamond": "^5.3.0",
     "@fontsource/jost": "^5.3.0",
-    "@fontsource/saira-stencil-one": "^5.3.0",
     "@supabase/supabase-js": "^2.117.2",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",

@@ -3,7 +3,8 @@
 -- Schema completo: tabelas, RLS, RPCs do ponto e dados iniciais.
 -- Aplique em um projeto Supabase NOVO (SQL Editor ou `supabase db push`).
 -- =====================================================================
-create extension if not exists pgcrypto;
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
 
 -- ---------- Cadastros ----------
 create table public.cargos (
@@ -173,15 +174,15 @@ create table public.auditoria (
 
 -- ---------- Papéis ----------
 create or replace function public.papel_atual() returns text
-language sql stable security definer set search_path = public, pg_temp as $$
+language sql stable security definer set search_path = public, extensions, pg_temp as $$
   select papel from public.perfis where id = auth.uid() and ativo
 $$;
 create or replace function public.eh_admin() returns boolean
-language sql stable security definer set search_path = public, pg_temp as $$
+language sql stable security definer set search_path = public, extensions, pg_temp as $$
   select coalesce(public.papel_atual() = 'admin', false)
 $$;
 create or replace function public.eh_gestao() returns boolean
-language sql stable security definer set search_path = public, pg_temp as $$
+language sql stable security definer set search_path = public, extensions, pg_temp as $$
   select coalesce(public.papel_atual() in ('admin','gerente'), false)
 $$;
 
@@ -253,7 +254,7 @@ end $$;
 -- Devolve um código em vez de lançar exceção: uma exceção desfaria a transação e
 -- apagaria o registro da tentativa, anulando o bloqueio.
 create or replace function public._validar_pin(p_id uuid, p_pin text) returns text
-language plpgsql security definer set search_path = public, pg_temp as $$
+language plpgsql security definer set search_path = public, extensions, pg_temp as $$
 declare v_hash text; v_ok boolean; v_erros int;
 begin
   select count(*) into v_erros from public.pin_tentativas
@@ -280,7 +281,7 @@ $$;
 -- As funções abaixo devolvem {"ok": false, "erro": "CODIGO"} para erros de negócio.
 create or replace function public.ponto_lista_ativos()
 returns table (id uuid, nome text, cargo_nome text, escala_id uuid)
-language sql stable security definer set search_path = public, pg_temp as $$
+language sql stable security definer set search_path = public, extensions, pg_temp as $$
   select f.id, f.nome, c.nome, f.escala_id
     from public.funcionarios f left join public.cargos c on c.id = f.cargo_id
    where f.ativo and f.tem_pin and (f.data_desligamento is null or f.data_desligamento >= current_date)
@@ -288,12 +289,12 @@ language sql stable security definer set search_path = public, pg_temp as $$
 $$;
 
 create or replace function public.ponto_escala(p_escala_id uuid) returns jsonb
-language sql stable security definer set search_path = public, pg_temp as $$
+language sql stable security definer set search_path = public, extensions, pg_temp as $$
   select jsonb_build_object('id', id, 'nome', nome, 'dias', dias, 'ativo', ativo) from public.escalas where id = p_escala_id
 $$;
 
 create or replace function public.ponto_contexto() returns jsonb
-language sql stable security definer set search_path = public, pg_temp as $$
+language sql stable security definer set search_path = public, extensions, pg_temp as $$
   select jsonb_build_object(
     'ponto', coalesce((select dados -> 'ponto' from public.configuracoes where id = 'global'), '{}'::jsonb),
     'escritorio_nome', coalesce((select dados -> 'escritorio' ->> 'nome' from public.configuracoes where id = 'global'), 'Almeida Advocacia & Consultoria'),
@@ -304,7 +305,7 @@ $$;
 create or replace function public.ponto_bater(
   p_func_id uuid, p_pin text, p_tipo text, p_justificativa text default null,
   p_lat double precision default null, p_lng double precision default null
-) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+) returns jsonb language plpgsql security definer set search_path = public, extensions, pg_temp as $$
 declare
   v_pin text; v_pt jsonb; v_local timestamp := now() at time zone 'America/Fortaleza'; v_data date;
   v_min int; v_dias jsonb; v_prev text; v_c record; v_id uuid; v_dist double precision; v_raio int;
@@ -346,7 +347,7 @@ begin
 end $$;
 
 create or replace function public.ponto_historico(p_func_id uuid, p_pin text, p_limite int default 12) returns jsonb
-language plpgsql security definer set search_path = public, pg_temp as $$
+language plpgsql security definer set search_path = public, extensions, pg_temp as $$
 declare v_pin text;
 begin
   v_pin := public._validar_pin(p_func_id, p_pin);
@@ -361,7 +362,7 @@ end $$;
 
 create or replace function public.ponto_retroativo(
   p_func_id uuid, p_pin text, p_data date, p_tipo text, p_hora text, p_justificativa text
-) returns jsonb language plpgsql security definer set search_path = public, pg_temp as $$
+) returns jsonb language plpgsql security definer set search_path = public, extensions, pg_temp as $$
 declare v_pin text; v_dias jsonb; v_prev text; v_id uuid; v_diff int; v_hoje date := (now() at time zone 'America/Fortaleza')::date;
 begin
   v_pin := public._validar_pin(p_func_id, p_pin);
@@ -388,7 +389,7 @@ end $$;
 
 -- ---------- Gestão ----------
 create or replace function public.aprovar_ponto(p_id uuid, p_acao text, p_motivo text default null) returns jsonb
-language plpgsql security definer set search_path = public, pg_temp as $$
+language plpgsql security definer set search_path = public, extensions, pg_temp as $$
 declare r public.registros_ponto; v_c record; v_pt jsonb;
 begin
   if not public.eh_gestao() then raise exception 'SEM_PERMISSAO'; end if;
@@ -414,7 +415,7 @@ end $$;
 create or replace function public.equipe()
 returns table (id uuid, nome text, cargo_id uuid, escala_id uuid, ativo boolean, data_admissao date,
                data_desligamento date, vinculo text, tem_pin boolean)
-language plpgsql stable security definer set search_path = public, pg_temp as $$
+language plpgsql stable security definer set search_path = public, extensions, pg_temp as $$
 begin
   if not public.eh_gestao() then raise exception 'SEM_PERMISSAO'; end if;
   return query select f.id, f.nome, f.cargo_id, f.escala_id, f.ativo, f.data_admissao, f.data_desligamento, f.vinculo, f.tem_pin
@@ -422,7 +423,7 @@ begin
 end $$;
 
 create or replace function public.definir_pin(p_func_id uuid, p_pin text) returns void
-language plpgsql security definer set search_path = public, pg_temp as $$
+language plpgsql security definer set search_path = public, extensions, pg_temp as $$
 begin
   if not public.eh_admin() then raise exception 'SEM_PERMISSAO'; end if;
   if p_pin !~ '^[0-9]{4,8}$' then raise exception 'PIN_FORMATO'; end if;

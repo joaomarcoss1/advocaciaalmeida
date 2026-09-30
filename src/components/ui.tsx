@@ -36,7 +36,9 @@ export function Modal({ titulo, onClose, children, rodape, largo }: {
   useEffect(() => {
     const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     document.addEventListener('keydown', h);
-    return () => document.removeEventListener('keydown', h);
+    const antes = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', h); document.body.style.overflow = antes; };
   }, [onClose]);
   return (
     <div className="overlay" onMouseDown={e => e.target === e.currentTarget && onClose()}>

@@ -54,7 +54,14 @@ export interface Db {
   feriados: Crud<Feriado>;
   ajustes: Crud<AjusteFolha>;
   folhas: FolhasRepo;
-  usuarios: Crud<Usuario>;
+  usuarios: { list(): Promise<Usuario[]> };
+  /** Gestão de acessos ao painel (só administrador). */
+  acessos: {
+    criar(a: { nome: string; email: string; papel: Papel; senha: string }): Promise<void>;
+    atualizar(id: string, a: { nome: string; papel: Papel; ativo: boolean }): Promise<void>;
+    redefinirSenha(id: string, senha: string): Promise<void>;
+    remover(id: string): Promise<void>;
+  };
   auditoria: Crud<Auditoria>;
   config: { get(): Promise<Config>; save(c: Config): Promise<void> };
   auth: {
