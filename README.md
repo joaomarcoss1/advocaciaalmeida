@@ -1,0 +1,84 @@
+# Almeida Advocacia & Consultoria · Plataforma Administrativa
+
+Sistema interno do escritório (Codó/MA): cadastro da equipe, cargos, **escalas de segunda a sábado**, **registro de ponto por PIN**, ocorrências/abonos, feriados e **folha de pagamento calculada por diária**.
+
+Identidade visual extraída das logos: azul-marinho `#002060`, dourado `#D1B47D`, títulos em **Saira Stencil One** (o mais próximo do "ALMEIDA" da logo) e texto em **Jost** (geométrica, como "ADVOCACIA & CONSULTORIA").
+
+## Como funciona o cálculo
+
+```
+diária          = salário mensal ÷ dias de trabalho previstos na escala no mês (seg–sáb, sem feriados)
+bruto do período = diária × dias previstos no período (a partir da admissão)
+desconto        = 1 diária por falta
+líquido         = bruto − faltas − (atrasos, se ativado) + adicionais/horas extras − descontos/adiantamentos
+```
+
+* **Falta** = dia previsto na escala, já passado, sem nenhuma marcação de ponto aprovada e sem ocorrência remunerada.
+* **Abonado** (atestado, declaração, audiência/diligência externa, férias, folga…) conta como dia pago. Ocorrência *não remunerada* vira falta.
+* Feriados e recessos cadastrados saem do divisor da diária e não geram falta.
+* Ajustes de ponto pedidos pelo funcionário (esqueceu de bater) só entram na conta **depois de aprovados** pela gerência.
+* Períodos mensal ou quinzenal (Configurações → Folha). A folha de um período em andamento é uma **prévia**; só se fecha depois do último dia.
+* Os valores são de **conferência gerencial**: INSS, IRRF, FGTS, férias e 13º **não** são calculados. Confirme com a contabilidade.
+
+A regra está em `src/lib/folha.ts` (funções puras, com testes em `src/lib/folha.test.ts`).
+
+## Perfis
+
+| Perfil | Vê |
+|---|---|
+| **Funcionário** | Só a tela de ponto (`/`), com nome + PIN. Vê o próprio histórico. |
+| **Gerência** | Presença, aprovações de ajuste de ponto, faltas a justificar, ocorrências, escalas, feriados, relatórios. **Não** vê salário nem folha. |
+| **Administrador** | Tudo, incluindo funcionários, salários, folha, configurações e acessos. |
+
+## Rodando
+
+```bash
+npm install
+npm run dev        # http://localhost:5173
+npm test           # testes do motor de cálculo e do ponto
+npm run build
+```
+
+Sem variáveis de ambiente o sistema roda em **modo demonstração**: dados fictícios salvos só no navegador (`localStorage`).
+Login de demonstração: `admin@almeidaadvocacia.com.br` / `almeida2026` e `gerencia@almeidaadvocacia.com.br` / `gerencia2026`. PINs de ponto de exemplo: `1001` a `1008`.
+
+## Usando o Supabase (banco real)
+
+1. Crie o projeto no Supabase (novo, só para este sistema).
+2. Abra **SQL Editor** e execute o arquivo `supabase/migrations/0001_almeida_schema.sql` (tabelas, RLS, funções de ponto, cargos e escalas iniciais).
+3. Em **Authentication → Users → Add user**, crie o e-mail e a senha do administrador. Depois, no SQL Editor:
+   ```sql
+   insert into public.perfis (id, nome, email, papel)
+   select id, 'Administrador', email, 'admin' from auth.users where email = 'SEU_EMAIL';
+   ```
+   Para a gerência, repita com `papel = 'gerente'`.
+4. Copie `.env.example` para `.env.local` e preencha `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` (Project Settings → API → *anon public*). **Nunca** use a `service_role` no front-end.
+5. Em **Authentication → Providers → Email**, desative o cadastro aberto (*Allow new users to sign up*), para que só o administrador crie acessos.
+
+### Segurança
+
+* PINs são guardados com `bcrypt` em tabela isolada (`funcionario_pins`), sem nenhuma política de leitura: só as funções `SECURITY DEFINER` acessam.
+* O ponto é público, mas só por funções (`ponto_bater`, `ponto_historico`, `ponto_retroativo`) que exigem PIN e **bloqueiam por 10 min após 5 erros seguidos**.
+* Gerência lê ponto/ocorrências por RLS e a equipe pela função `equipe()`, que omite salário, CPF e dados bancários.
+* Teste do SQL: `supabase/run_rpc_tests.sh` sobe o schema num Postgres local (com um stub do schema `auth`) e exercita PIN, bloqueio, atraso, duplicidade, retroativo e permissões de `anon`/gerente/admin.
+
+## Deploy (Vercel)
+
+Importe o repositório, framework **Vite**, e configure as duas variáveis `VITE_SUPABASE_*`. O `vercel.json` já faz o redirecionamento de rotas (SPA).
+
+## Referências usadas para estruturar o sistema
+
+* **Jornada:** CLT (até 8h/dia e 44h/semana). Advogado empregado: art. 20 do Estatuto da OAB, alterado pela Lei 14.365/2022 — confira no contrato/convenção coletiva qual jornada se aplica; horas excedentes têm adicional mínimo de 100% pela lei, mas o percentual sugerido aqui é configurável.
+* **Estágio:** Lei 11.788/2008 (até 6h/dia e 30h/semana no ensino superior) — a escala modelo "Estágio" respeita isso.
+* **Salário mínimo 2026:** R$ 1.621,00 (Decreto 12.797/2025) — usado apenas como valor de exemplo para "Serviços Gerais".
+* **Feriados:** nacionais fixos e móveis (Páscoa calculada), Adesão do Maranhão à Independência (28/07). **Feriados municipais de Codó não vêm cadastrados**: a fundação da cidade é 16/04/1896, mas confirme na legislação municipal se é feriado antes de lançar (a tela de Feriados traz essa sugestão).
+* **Recesso forense** (20/12 a 20/01) suspende prazos processuais, mas não fecha o escritório automaticamente: cadastre em Feriados os dias sem expediente.
+
+## Estrutura
+
+```
+src/lib        regras de negócio puras (folha, ponto, feriados, exportação)
+src/data       camada de dados: local (demo) e supabase, mesma interface
+src/pages      telas
+supabase/      schema SQL + roteiro de teste das funções
+```

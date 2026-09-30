@@ -1,0 +1,9 @@
+{
+  "name": "Almeida Advocacia · Plataforma Administrativa",
+  "short_name": "Almeida",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#002060",
+  "theme_color": "#002060",
+  "icons": [{ "src": "/favicon.png", "sizes": "150x150", "type": "image/png" }]
+}

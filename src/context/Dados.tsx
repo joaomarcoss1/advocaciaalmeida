@@ -1,0 +1,74 @@
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { getDb, type Db } from '@/data/db';
+import { CONFIG_PADRAO } from '@/lib/config';
+import { agoraBR, type AgoraBR } from '@/lib/datetime';
+import type {
+  AjusteFolha, Cargo, Config, Escala, Feriado, Folha, Funcionario, Ocorrencia, RegistroPonto, Usuario,
+} from '@/lib/types';
+import { useAuth } from './Auth';
+
+interface DadosCtx {
+  db: Db;
+  carregando: boolean;
+  cargos: Cargo[]; escalas: Escala[]; funcionarios: Funcionario[]; registros: RegistroPonto[]; ocorrencias: Ocorrencia[];
+  feriados: Feriado[]; ajustes: AjusteFolha[]; folhas: Folha[]; usuarios: Usuario[]; config: Config;
+  agora: AgoraBR;
+  recarregar(): Promise<void>;
+  auditar(acao: string, detalhe?: string): Promise<void>;
+}
+const Ctx = createContext<DadosCtx | null>(null);
+
+export function DadosProvider({ children }: { children: ReactNode }) {
+  const { sessao } = useAuth();
+  const [db, setDb] = useState<Db | null>(null);
+  const [carregando, setCarregando] = useState(true);
+  const [d, setD] = useState({
+    cargos: [] as Cargo[], escalas: [] as Escala[], funcionarios: [] as Funcionario[], registros: [] as RegistroPonto[],
+    ocorrencias: [] as Ocorrencia[], feriados: [] as Feriado[], ajustes: [] as AjusteFolha[], folhas: [] as Folha[],
+    usuarios: [] as Usuario[], config: CONFIG_PADRAO,
+  });
+  const [agora, setAgora] = useState(agoraBR());
+
+  useEffect(() => { getDb().then(setDb); }, []);
+  useEffect(() => { const t = setInterval(() => setAgora(agoraBR()), 30_000); return () => clearInterval(t); }, []);
+
+  const recarregar = useCallback(async () => {
+    if (!db || !sessao) return;
+    const admin = sessao.papel === 'admin';
+    const [cargos, escalas, func, registros, ocorrencias, feriados, config, ajustes, folhas, usuarios] = await Promise.all([
+      db.cargos.list(), db.escalas.list(),
+      admin
+        ? db.funcionarios.list()
+        : db.equipe().then(eq => eq.map(e => ({
+          ...e, cpf: null, email: null, telefone: null, salario_mensal: 0, oab: null, pix: null, banco: null, agencia: null,
+          conta: null, tipo_conta: null, observacoes: null, created_at: '',
+        }) as Funcionario)),
+      db.registros.list(), db.ocorrencias.list(), db.feriados.list(), db.config.get(),
+      admin ? db.ajustes.list() : Promise.resolve([] as AjusteFolha[]),
+      admin ? db.folhas.list() : Promise.resolve([] as Folha[]),
+      admin ? db.usuarios.list() : Promise.resolve([] as Usuario[]),
+    ]);
+    setD({ cargos, escalas, funcionarios: func, registros, ocorrencias, feriados, config, ajustes, folhas, usuarios });
+    setAgora(agoraBR());
+  }, [db, sessao]);
+
+  useEffect(() => {
+    if (!db || !sessao) { setCarregando(false); return; }
+    setCarregando(true);
+    recarregar().finally(() => setCarregando(false));
+  }, [db, sessao, recarregar]);
+
+  const auditar = useCallback(async (acao: string, detalhe = '') => {
+    if (!db || !sessao) return;
+    try { await db.auditoria.insert({ usuario: sessao.nome, acao, detalhe }); } catch { /* auditoria não deve travar a ação */ }
+  }, [db, sessao]);
+
+  const valor = useMemo(() => (db ? { db, carregando, ...d, agora, recarregar, auditar } : null), [db, carregando, d, agora, recarregar, auditar]);
+  if (!valor) return null;
+  return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
+}
+export function useDados() {
+  const c = useContext(Ctx);
+  if (!c) throw new Error('useDados fora do DadosProvider');
+  return c;
+}
