@@ -9,7 +9,7 @@ export default function Presenca() {
   const dados = useDados();
   const linhas = useMemo(() => dados.funcionarios.filter(f => f.ativo).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).map(f => ({ f, s: situacaoHoje(dados, f) })), [dados]);
   const cargo = (id: string | null) => dados.cargos.find(c => c.id === id)?.nome ?? '—';
-  if (!linhas.length) return <Vazio>Nenhum funcionário ativo.</Vazio>;
+  if (!linhas.length) return <Vazio tipo="pessoas" titulo="Nenhum funcionário ativo">Cadastre a equipe para acompanhar a presença de hoje.</Vazio>;
   return (
     <div className="table-wrap">
       <table className="tbl">

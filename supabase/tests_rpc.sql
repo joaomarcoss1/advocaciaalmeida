@@ -30,8 +30,8 @@ insert into public.funcionarios (id, nome, salario_mensal, escala_id, vinculo) v
 
 \echo == 1. admin define PIN (via função)
 set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000a1';
-select public.definir_pin('00000000-0000-0000-0000-00000000f001','1234');
-select public.definir_pin('00000000-0000-0000-0000-00000000f002','4321');
+select public.definir_pin('00000000-0000-0000-0000-00000000f001','482913');
+select public.definir_pin('00000000-0000-0000-0000-00000000f002','739105');
 select 'pin formato invalido ->' , (select 1) ;
 select public.definir_pin('00000000-0000-0000-0000-00000000f002','12');
 reset role;
@@ -40,7 +40,7 @@ select count(*) as hash_bcrypt from public.funcionario_pins where pin_hash like 
 
 \echo == 2. anon: lista de ativos sem dados sensiveis; tabelas bloqueadas
 set role anon; reset request.jwt.claim.sub;
-select nome, cargo_nome from public.ponto_lista_ativos();
+select nome, cargo_nome from public.ponto_buscar('ana');
 select count(*) as anon_le_funcionarios from public.funcionarios;
 select count(*) as anon_le_pins from public.funcionario_pins;
 select count(*) as anon_le_folhas from public.folhas;
@@ -49,24 +49,24 @@ select count(*) as anon_le_folhas from public.folhas;
 select public.ponto_bater('00000000-0000-0000-0000-00000000f001','0000','entrada');
 
 \echo == 4. entrada pontual
-select public.ponto_bater('00000000-0000-0000-0000-00000000f001','1234','entrada');
+select public.ponto_bater('00000000-0000-0000-0000-00000000f001','482913','entrada');
 \echo == 5. duplicada
-select public.ponto_bater('00000000-0000-0000-0000-00000000f001','1234','entrada');
+select public.ponto_bater('00000000-0000-0000-0000-00000000f001','482913','entrada');
 \echo == 6. saida (prevista 23:59 -> antecipada, exige justificativa)
-select public.ponto_bater('00000000-0000-0000-0000-00000000f001','1234','saida');
-select public.ponto_bater('00000000-0000-0000-0000-00000000f001','1234','saida','Audiencia externa');
+select public.ponto_bater('00000000-0000-0000-0000-00000000f001','482913','saida');
+select public.ponto_bater('00000000-0000-0000-0000-00000000f001','482913','saida','Audiencia externa');
 \echo == 7. atraso exige justificativa
-select public.ponto_bater('00000000-0000-0000-0000-00000000f002','4321','entrada');
-select public.ponto_bater('00000000-0000-0000-0000-00000000f002','4321','entrada','Transito na BR-316');
+select public.ponto_bater('00000000-0000-0000-0000-00000000f002','739105','entrada');
+select public.ponto_bater('00000000-0000-0000-0000-00000000f002','739105','entrada','Transito na BR-316');
 \echo == 8. historico
-select public.ponto_historico('00000000-0000-0000-0000-00000000f002','4321',5);
+select public.ponto_historico('00000000-0000-0000-0000-00000000f002','739105',5);
 select public.ponto_historico('00000000-0000-0000-0000-00000000f002','9999',5);
 
 \echo == 9. retroativo
-select public.ponto_retroativo('00000000-0000-0000-0000-00000000f001','1234', current_date, 'entrada','08:00','curto');
-select public.ponto_retroativo('00000000-0000-0000-0000-00000000f001','1234', current_date - 2, 'entrada','08:00','Esqueci de bater, estava em diligencia');
-select public.ponto_retroativo('00000000-0000-0000-0000-00000000f001','1234', current_date - 2, 'entrada','08:00','Esqueci de bater, estava em diligencia');
-select public.ponto_retroativo('00000000-0000-0000-0000-00000000f001','1234', current_date - 90, 'entrada','08:00','Muito antigo mesmo');
+select public.ponto_retroativo('00000000-0000-0000-0000-00000000f001','482913', current_date, 'entrada','08:00','curto');
+select public.ponto_retroativo('00000000-0000-0000-0000-00000000f001','482913', current_date - 2, 'entrada','08:00','Esqueci de bater, estava em diligencia');
+select public.ponto_retroativo('00000000-0000-0000-0000-00000000f001','482913', current_date - 2, 'entrada','08:00','Esqueci de bater, estava em diligencia');
+select public.ponto_retroativo('00000000-0000-0000-0000-00000000f001','482913', current_date - 90, 'entrada','08:00','Muito antigo mesmo');
 select public.aprovar_ponto(id, 'aprovar') as anon_aprova from public.registros_ponto limit 1;
 
 \echo == 10. bloqueio apos 5 PINs errados
@@ -75,7 +75,7 @@ select public.ponto_bater('00000000-0000-0000-0000-00000000f002','x','saida');
 select public.ponto_bater('00000000-0000-0000-0000-00000000f002','x','saida');
 select public.ponto_bater('00000000-0000-0000-0000-00000000f002','x','saida');
 select public.ponto_bater('00000000-0000-0000-0000-00000000f002','x','saida');
-select public.ponto_bater('00000000-0000-0000-0000-00000000f002','4321','saida','tentando com pin certo');
+select public.ponto_bater('00000000-0000-0000-0000-00000000f002','739105','saida','tentando com pin certo');
 
 \echo == 11. gerente: ve ponto, equipe sem salario, NAO ve funcionarios/folhas; aprova
 reset role; set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000b1';

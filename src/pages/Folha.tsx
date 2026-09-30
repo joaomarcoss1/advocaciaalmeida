@@ -4,6 +4,7 @@ import { Badge, Field, Kpi, Modal, PageHeader, useConfirm, useToast, Vazio } fro
 import { useDados } from '@/context/Dados';
 import { fmtData, nomeMes, addDays } from '@/lib/datetime';
 import type { LinhaExport } from '@/lib/export';
+import { criarSelo } from '@/lib/selo';
 
 // PDF/Excel pesam ~1 MB: só são baixados quando o usuário exporta.
 const exportar = () => import('@/lib/export');
@@ -76,6 +77,21 @@ export default function Folha() {
 
   const paraExportar = (): LinhaExport[] => linhas.map(l => ({ func: l.func, cargo: cargoDe(l.func.cargo_id), calc: l.efetivo, ajustes: ajustesDe(l.func.id) }));
   const cab = { escritorio: config.escritorio, periodo: rotuloPeriodo };
+  /** Cabeçalho com selo de autenticidade (código + QR Code registrados no banco). */
+  async function cabComSelo(tipo: 'folha' | 'holerite', titulo: string, resumo: Record<string, unknown>, conteudo: unknown) {
+    return { ...cab, selo: await criarSelo(db, { tipo, titulo, periodo: rotuloPeriodo, resumo, conteudo }) };
+  }
+  const gerarFolhaPdf = async () => {
+    const linhasExp = paraExportar();
+    const total = linhasExp.reduce((t, l) => t + l.calc.valor_final, 0);
+    const [m, c] = await Promise.all([exportar(), cabComSelo('folha', 'Folha de pagamento', { funcionarios: linhasExp.length, total_liquido: Math.round(total * 100) / 100, faltas: linhasExp.reduce((t, l) => t + l.calc.faltas, 0) }, linhasExp.map(l => [l.func.id, l.calc.valor_final, l.calc.faltas]))]);
+    await m.folhaPdf(linhasExp, c);
+  };
+  const gerarHolerite = async (l: { func: Funcionario; efetivo: FolhaCalculada }) => {
+    const item = { func: l.func, cargo: cargoDe(l.func.cargo_id), calc: l.efetivo, ajustes: ajustesDe(l.func.id) };
+    const [m, c] = await Promise.all([exportar(), cabComSelo('holerite', 'Demonstrativo de pagamento', { total_liquido: l.efetivo.valor_final, faltas: l.efetivo.faltas }, [l.func.id, l.efetivo.valor_final, l.efetivo.faltas])]);
+    await m.holeritePdf(item, c);
+  };
   function ajustesDe(fid: string) { return ajustes.filter(a => a.funcionario_id === fid && a.data >= per.inicio && a.data <= per.fim).sort((a, b) => a.data.localeCompare(b.data)); }
 
   function novoAjuste(fid = '') {
@@ -186,7 +202,7 @@ export default function Folha() {
         <div className="card-head">
           <span className="section-title">{rotuloPeriodo}</span>
           <div className="row">
-            <button className="btn ghost sm" disabled={!linhas.length} onClick={() => exportar().then(m => m.folhaPdf(paraExportar(), cab))}><FileDown size={16} />PDF</button>
+            <button className="btn ghost sm" disabled={!linhas.length} onClick={() => gerarFolhaPdf().catch(e => toast.erro((e as Error).message))}><FileDown size={16} />PDF</button>
             <button className="btn ghost sm" disabled={!linhas.length} onClick={() => exportar().then(m => m.folhaXlsx(paraExportar(), cab))}><FileSpreadsheet size={16} />Excel</button>
           </div>
         </div>
@@ -210,7 +226,7 @@ export default function Folha() {
                     <td>{l.salva ? <Badge tom={STATUS[l.salva.status].tom}>{STATUS[l.salva.status].rotulo}</Badge> : <Badge tom="mute">Prévia</Badge>}{l.desatualizada && <> <Badge tom="warn">Recalcular</Badge></>}</td>
                     <td className="right" style={{ whiteSpace: 'nowrap' }}>
                       <button className="btn ghost sm" onClick={() => setDetalhe(l.func.id)}>Detalhes</button>{' '}
-                      <button className="icon-btn" title="Demonstrativo em PDF" aria-label={`Demonstrativo de ${l.func.nome}`} onClick={() => exportar().then(m => m.holeritePdf({ func: l.func, cargo: cargoDe(l.func.cargo_id), calc: l.efetivo, ajustes: ajustesDe(l.func.id) }, cab))}><ReceiptText size={17} /></button>
+                      <button className="icon-btn" title="Demonstrativo em PDF" aria-label={`Demonstrativo de ${l.func.nome}`} onClick={() => gerarHolerite(l).catch(e => toast.erro((e as Error).message))}><ReceiptText size={17} /></button>
                     </td>
                   </tr>
                 );
@@ -218,7 +234,7 @@ export default function Folha() {
             </tbody>
             {linhas.length > 0 && <tfoot><tr><td colSpan={8} className="right">TOTAL LÍQUIDO</td><td className="num">{brl(totalLiquido)}</td><td colSpan={2} /></tr></tfoot>}
           </table>
-          {!linhas.length && <Vazio>Nenhum funcionário com vínculo neste período.</Vazio>}
+          {!linhas.length && <Vazio tipo="pessoas" titulo="Ninguém na folha deste período">Funcionários ativos com vínculo no período aparecem aqui.</Vazio>}
         </div>
       </div>
       <p className="hint" style={{ marginTop: 12 }}>Os valores são de conferência gerencial: encargos legais (INSS, IRRF, FGTS, férias e 13º) não são calculados aqui. Confirme os cálculos com a contabilidade do escritório.</p>
@@ -227,7 +243,7 @@ export default function Folha() {
         <Modal largo titulo={det.func.nome} onClose={() => setDetalhe(null)} rodape={<>
           {det.salva?.status === 'fechada' && <button className="btn ghost" onClick={() => { reabrir(det); setDetalhe(null); }}><LockOpen size={16} />Reabrir folha</button>}
           <button className="btn ghost" onClick={() => novoAjuste(det.func.id)}><Plus size={16} />Ajuste</button>
-          <button className="btn" onClick={() => exportar().then(m => m.holeritePdf({ func: det.func, cargo: cargoDe(det.func.cargo_id), calc: det.efetivo, ajustes: ajustesDe(det.func.id) }, cab))}><ReceiptText size={16} />Demonstrativo PDF</button>
+          <button className="btn" onClick={() => gerarHolerite(det).catch(e => toast.erro((e as Error).message))}><ReceiptText size={16} />Demonstrativo PDF</button>
         </>}>
           <div className="grid c2" style={{ alignItems: 'start' }}>
             <div>

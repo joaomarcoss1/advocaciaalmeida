@@ -2,11 +2,12 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from '@/context/Auth';
 import { DadosProvider } from '@/context/Dados';
-import { ConfirmProvider, ToastProvider } from '@/components/ui';
+import { ConfirmProvider, PaginaEsqueleto, ToastProvider } from '@/components/ui';
 import Layout from '@/components/Layout';
 import BaterPonto from '@/pages/BaterPonto';
 import Login from '@/pages/Login';
 import Diagnostico from '@/pages/Diagnostico';
+import Verificar from '@/pages/Verificar';
 
 const Dashboard = lazy(() => import('@/pages/Dashboard'));
 const Gerencia = lazy(() => import('@/pages/Gerencia'));
@@ -42,18 +43,20 @@ export default function App() {
             <Route path="/" element={<BaterPonto />} />
             <Route path="/entrar" element={<Login />} />
             <Route path="/diagnostico" element={<Diagnostico />} />
+            <Route path="/verificar" element={<Verificar />} />
+            <Route path="/verificar/:codigo" element={<Verificar />} />
             <Route path="/painel" element={<Protegido><DadosProvider><Layout /></DadosProvider></Protegido>}>
-              <Route index element={<Suspense fallback={null}><Inicio /></Suspense>} />
-              <Route path="gerencia" element={<Suspense fallback={null}><Gerencia /></Suspense>} />
-              <Route path="funcionarios" element={<Protegido papeis={['admin']}><Suspense fallback={null}><Funcionarios /></Suspense></Protegido>} />
-              <Route path="cargos" element={<Protegido papeis={['admin']}><Suspense fallback={null}><Cargos /></Suspense></Protegido>} />
-              <Route path="escalas" element={<Suspense fallback={null}><Escalas /></Suspense>} />
-              <Route path="ponto" element={<Suspense fallback={null}><Registros /></Suspense>} />
-              <Route path="ocorrencias" element={<Suspense fallback={null}><Ocorrencias /></Suspense>} />
-              <Route path="feriados" element={<Suspense fallback={null}><Feriados /></Suspense>} />
-              <Route path="folha" element={<Protegido papeis={['admin']}><Suspense fallback={null}><Folha /></Suspense></Protegido>} />
-              <Route path="relatorios" element={<Suspense fallback={null}><Relatorios /></Suspense>} />
-              <Route path="configuracoes" element={<Protegido papeis={['admin']}><Suspense fallback={null}><Configuracoes /></Suspense></Protegido>} />
+              <Route index element={<Suspense fallback={<PaginaEsqueleto />}><Inicio /></Suspense>} />
+              <Route path="gerencia" element={<Suspense fallback={<PaginaEsqueleto />}><Gerencia /></Suspense>} />
+              <Route path="funcionarios" element={<Protegido papeis={['admin']}><Suspense fallback={<PaginaEsqueleto />}><Funcionarios /></Suspense></Protegido>} />
+              <Route path="cargos" element={<Protegido papeis={['admin']}><Suspense fallback={<PaginaEsqueleto />}><Cargos /></Suspense></Protegido>} />
+              <Route path="escalas" element={<Suspense fallback={<PaginaEsqueleto />}><Escalas /></Suspense>} />
+              <Route path="ponto" element={<Suspense fallback={<PaginaEsqueleto />}><Registros /></Suspense>} />
+              <Route path="ocorrencias" element={<Suspense fallback={<PaginaEsqueleto />}><Ocorrencias /></Suspense>} />
+              <Route path="feriados" element={<Suspense fallback={<PaginaEsqueleto />}><Feriados /></Suspense>} />
+              <Route path="folha" element={<Protegido papeis={['admin']}><Suspense fallback={<PaginaEsqueleto />}><Folha /></Suspense></Protegido>} />
+              <Route path="relatorios" element={<Suspense fallback={<PaginaEsqueleto />}><Relatorios /></Suspense>} />
+              <Route path="configuracoes" element={<Protegido papeis={['admin']}><Suspense fallback={<PaginaEsqueleto />}><Configuracoes /></Suspense></Protegido>} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Check, Coffee, Delete, History, Lock, LogIn, LogOut, MapPin, MapPinOff, RotateCcw, Search, Undo2, UserSearch, X } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, ArrowRight, Check, Coffee, Delete, History, Lock, LogIn, LogOut, MapPin, MapPinOff, Maximize2, Minimize2, RotateCcw, Search, Undo2, UserSearch, X } from 'lucide-react';
 import Stage from '@/components/Stage';
 import { getDb, PONTO_ERRO_MSG, type ContextoPonto, type MarcacaoHistorico, type PessoaPonto } from '@/data/db';
 import { addDays, agoraBR, fmtData, isoParaBR, type AgoraBR } from '@/lib/datetime';
@@ -47,7 +47,8 @@ function StatusLocal({ local, raio, onVerificar, compacto }: { local: EstadoLoca
 }
 
 export default function BaterPonto() {
-  const [pessoas, setPessoas] = useState<PessoaPonto[]>([]);
+  const [achadas, setAchadas] = useState<PessoaPonto[]>([]);
+  const [buscando, setBuscando] = useState(false);
   const [ctx, setCtx] = useState<ContextoPonto | null>(null);
   const [modo, setModo] = useState<'local' | 'supabase'>('local');
   const [busca, setBusca] = useState('');
@@ -68,6 +69,18 @@ export default function BaterPonto() {
   const [retroOk, setRetroOk] = useState(false);
   const ocioso = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [local, setLocal] = useState<EstadoLocal>({ estado: 'verificando' });
+  // Modo quiosque (tablet na recepção): relógio grande, botões maiores e reinício rápido. Guardado neste aparelho.
+  const [params] = useSearchParams();
+  const [quiosque, setQuiosque] = useState(() => { try { return params.get('quiosque') === '1' || localStorage.getItem('almeida.quiosque') === '1'; } catch { return false; } });
+  const [volta, setVolta] = useState<number | null>(null);
+  const tempoVolta = quiosque ? 6 : 8;
+  function alternarQuiosque() {
+    const novo = !quiosque;
+    setQuiosque(novo);
+    try { localStorage.setItem('almeida.quiosque', novo ? '1' : '0'); } catch { /* sem armazenamento */ }
+    if (novo) document.documentElement.requestFullscreen?.().catch(() => undefined);
+    else if (document.fullscreenElement) document.exitFullscreen?.().catch(() => undefined);
+  }
   const cerca = !!ctx?.ponto.geofence_ativo;
   const dentro = !cerca || local.estado === 'dentro';
 
@@ -87,7 +100,7 @@ export default function BaterPonto() {
   }, [cerca, checarLocal]);
 
   useEffect(() => {
-    getDb().then(async db => { setModo(db.modo); setPessoas(await db.ponto.listarAtivos()); setCtx(await db.ponto.contexto()); });
+    getDb().then(async db => { setModo(db.modo); setCtx(await db.ponto.contexto()); });
     const t = setInterval(() => setAgora(agoraBR()), 1000);
     return () => clearInterval(t);
   }, []);
@@ -101,9 +114,23 @@ export default function BaterPonto() {
   useEffect(() => {
     if (etapa === 'pessoa') return;
     clearTimeout(ocioso.current);
-    ocioso.current = setTimeout(voltar, 120_000);
+    ocioso.current = setTimeout(voltar, quiosque ? 45_000 : 120_000);
     return () => clearTimeout(ocioso.current);
-  }, [etapa, escolha, just, sucesso, retro, hist, pin, voltar]);
+  }, [etapa, escolha, just, sucesso, retro, hist, pin, voltar, quiosque]);
+
+  // Depois de registrar: vibra (celular) e volta sozinho à tela inicial, para o próximo funcionário não ficar com a sessão aberta.
+  useEffect(() => {
+    if (!sucesso) { setVolta(null); return; }
+    try { navigator.vibrate?.([35, 60, 35]); } catch { /* aparelho sem vibração */ }
+    setVolta(tempoVolta);
+  }, [sucesso, tempoVolta]);
+  useEffect(() => {
+    if (volta === null) return;
+    if (volta <= 0) { voltar(); return; }
+    const t = setTimeout(() => setVolta(v => (v === null ? v : v - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [volta, voltar]);
+  useEffect(() => { if (erro) { try { navigator.vibrate?.(140); } catch { /* sem vibração */ } } }, [erro]);
 
   useEffect(() => {
     if (etapa !== 'pin') return;
@@ -116,16 +143,32 @@ export default function BaterPonto() {
     return () => window.removeEventListener('keydown', h);
   }, [etapa, voltar]);
 
-  // A lista nunca aparece por inteira: só resultados de uma busca (mín. 2 letras), no máximo 6.
+  // A equipe nunca é baixada por inteira: a busca roda no servidor (mín. 3 letras, no máx. 5 resultados).
   const termo = semAcento(busca.trim());
-  const filtradas = useMemo(
-    () => (termo.length < 2 ? [] : pessoas.filter(p => semAcento(p.nome).includes(termo)).slice(0, 6)),
-    [pessoas, termo],
-  );
+  useEffect(() => {
+    if (termo.length < 3) { setAchadas([]); setBuscando(false); return; }
+    setBuscando(true);
+    let vivo = true;
+    const t = setTimeout(async () => {
+      try { const db = await getDb(); const r = await db.ponto.buscar(busca.trim()); if (vivo) setAchadas(r); }
+      catch { if (vivo) setAchadas([]); }
+      finally { if (vivo) setBuscando(false); }
+    }, 250);
+    return () => { vivo = false; clearTimeout(t); };
+  }, [busca, termo.length]);
+  const filtradas = termo.length < 3 ? [] : achadas;
 
-  function buscar() {
+  async function buscar() {
     setTentou(true);
-    if (termo.length >= 2 && filtradas.length === 1) escolherPessoa(filtradas[0]);
+    if (termo.length < 3) return;
+    // busca imediata (sem esperar o intervalo da digitação); se houver um único resultado, já segue
+    setBuscando(true);
+    try {
+      const r = await (await getDb()).ponto.buscar(busca.trim());
+      setAchadas(r);
+      if (r.length === 1) escolherPessoa(r[0]);
+    } catch { setAchadas([]); }
+    finally { setBuscando(false); }
   }
 
   async function escolherPessoa(p: PessoaPonto) {
@@ -206,7 +249,8 @@ export default function BaterPonto() {
   const primeiro = pessoa?.nome.split(' ')[0] ?? '';
 
   return (
-    <div className="auth">
+    <div className={`auth ${quiosque ? 'quiosque' : ''}`}>
+      <button type="button" className="icon-btn q-toggle no-print" style={{ color: 'var(--muted)' }} onClick={alternarQuiosque} aria-pressed={quiosque} aria-label={quiosque ? 'Sair do modo quiosque' : 'Ativar modo quiosque (tela cheia para tablet)'} title={quiosque ? 'Sair do modo quiosque' : 'Modo quiosque'}>{quiosque ? <Minimize2 /> : <Maximize2 />}</button>
       <Stage>
         <div aria-label={`Hora atual ${agora.hhmm}`}>
           <div className="hora"><span key={hh} className="tick">{hh}</span><span className="sep">:</span><span key={mm} className="tick">{mm}</span></div>
@@ -237,11 +281,11 @@ export default function BaterPonto() {
                 </div>
                 <button className="btn gold" type="submit">Buscar</button>
               </form>
-              <p className="hint" style={{ marginTop: 10 }}>{tentou && termo.length < 2 ? <span style={{ color: 'var(--bad)' }}>Digite ao menos 2 letras para buscar.</span> : 'Mínimo de 2 letras. Não é preciso digitar o nome completo.'}</p>
+              <p className="hint" style={{ marginTop: 10 }}>{tentou && termo.length < 3 ? <span style={{ color: 'var(--bad)' }}>Digite ao menos 3 letras para buscar.</span> : 'Mínimo de 3 letras. Não é preciso digitar o nome completo.'}</p>
 
-              {termo.length >= 2 ? (
+              {termo.length >= 3 ? (
                 <div className="results" aria-live="polite">
-                  <div className="section-title" style={{ marginBottom: 10 }}>{filtradas.length ? `${filtradas.length} resultado(s)` : 'Nenhum resultado'}</div>
+                  <div className="section-title" style={{ marginBottom: 10 }}>{buscando ? 'Buscando…' : filtradas.length ? `${filtradas.length} resultado(s)` : 'Nenhum resultado'}</div>
                   {filtradas.map(p => (
                     <div key={p.id} className="result">
                       <span className="avatar">{iniciais(p.nome)}</span>
@@ -268,7 +312,7 @@ export default function BaterPonto() {
                 <span className="eyebrow">Olá, {primeiro}</span>
                 <h1>Digite seu PIN</h1>
               </div>
-              <div className="pin-dots" aria-label={`${pin.length} dígitos digitados`}>
+              <div className="pin-dots" role="img" aria-label={`${pin.length} dígitos digitados`}>
                 {Array.from({ length: Math.max(6, pin.length) }).map((_, i) => <i key={i} className={i < pin.length ? 'on' : ''} />)}
               </div>
               {erro && <div className="notice bad" role="alert">{erro}</div>}
@@ -294,9 +338,15 @@ export default function BaterPonto() {
               </div>
 
               {sucesso && (
-                <div className="notice ok" role="status">
-                  <Check size={18} style={{ verticalAlign: 'middle' }} /> <strong>{TIPO_MARCACAO_LABEL[sucesso.tipo]} registrada às {sucesso.hora}.</strong><br />
-                  {STATUS_TXT[sucesso.status]}{sucesso.dif !== 0 && sucesso.status !== 'extra' ? ` (${sucesso.dif > 0 ? '+' : '−'}${minParaHoras(sucesso.dif)})` : ''}
+                <div className="sucesso" role="status">
+                  <svg className="selo" viewBox="0 0 56 56" aria-hidden="true"><circle cx="28" cy="28" r="24" /><path d="M17 29l8 8 14-16" /></svg>
+                  <div>
+                    <strong>{TIPO_MARCACAO_LABEL[sucesso.tipo]} registrada às {sucesso.hora}</strong>
+                    <div>{STATUS_TXT[sucesso.status]}{sucesso.dif !== 0 && sucesso.status !== 'extra' ? ` (${sucesso.dif > 0 ? '+' : '−'}${minParaHoras(sucesso.dif)})` : ''}</div>
+                    {volta !== null && (
+                      <span className="volta">Voltando à tela inicial em {volta}s · <button type="button" className="link-btn" onClick={() => setVolta(null)}>continuar aqui</button></span>
+                    )}
+                  </div>
                 </div>
               )}
               {retroOk && <div className="notice gold" role="status">Solicitação enviada. A gerência vai analisar o ajuste do seu ponto.</div>}

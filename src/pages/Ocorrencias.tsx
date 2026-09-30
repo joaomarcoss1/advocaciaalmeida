@@ -96,7 +96,7 @@ export default function Ocorrencias() {
               ))}
             </tbody>
           </table>
-          {!lista.length && <Vazio>Nenhuma ocorrência registrada.</Vazio>}
+          {!lista.length && <Vazio tipo="documento" titulo="Nenhuma ocorrência">Atestados, audiências externas, férias e outras ausências aparecem aqui.</Vazio>}
         </div>
       </div>
       {ed && <ModalOcorrencia inicial={ed} onClose={() => setEd(null)} />}

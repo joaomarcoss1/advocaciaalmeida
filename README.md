@@ -45,7 +45,7 @@ Login de demonstração: `admin@almeidaadvocacia.com.br` / `almeida2026` e `gere
 ## Usando o Supabase (banco real)
 
 1. Use um projeto Supabase novo, só para este sistema (URL: `https://svasbxhxhvcranejwxku.supabase.co`).
-2. Abra **SQL Editor**, cole e execute, nesta ordem, `supabase/migrations/0001_almeida_schema.sql`, `0002_gestao_usuarios.sql` e `0004_ajustes_manuais.sql` (tabelas, RLS, funções de ponto, cargos e escalas iniciais, gestão de acessos, diária fixa e ajuste de dias). Em bancos criados com a primeira versão do 0001, rode antes `0003_corrige_search_path.sql` (corrige o erro `function gen_salt(unknown) does not exist` ao salvar PIN: no Supabase o `pgcrypto` fica no schema `extensions`) ou use o arquivo único `supabase/atualizacao_definitiva.sql`, que aplica 0003 + 0002 + 0004 sem apagar dados e pode ser repetido.
+2. Abra **SQL Editor**, cole e execute, nesta ordem, `supabase/migrations/0001_almeida_schema.sql`, `0002_gestao_usuarios.sql` e `0004_ajustes_manuais.sql` (tabelas, RLS, funções de ponto, cargos e escalas iniciais, gestão de acessos, diária fixa e ajuste de dias). Em bancos criados com a primeira versão do 0001, rode antes `0003_corrige_search_path.sql` (corrige o erro `function gen_salt(unknown) does not exist` ao salvar PIN: no Supabase o `pgcrypto` fica no schema `extensions`) ou use o arquivo único `supabase/atualizacao_definitiva.sql` (gerado por `supabase/gerar_atualizacao.sh`), que aplica 0003 + 0002 + 0004 + 0005 + 0006 + 0007 sem apagar dados e pode ser repetido.
 3. Se ainda não houver administrador, em **Authentication → Users → Add user** crie o e-mail e a senha. Depois, no SQL Editor:
    ```sql
    insert into public.perfis (id, nome, email, papel)
@@ -109,3 +109,26 @@ supabase/      schema SQL + roteiro de teste das funções
 - **Configurações → Ponto**: ativar/desativar a cerca, endereço, latitude/longitude, raio, **Usar minha localização** (define o centro onde o administrador está e salva na hora, com confirmação e auditoria), **Testar minha distância** e **Ver no mapa**.
 - Bancos existentes: rode `supabase/atualizacao_definitiva.sql` (inclui `0005_geofence.sql`; não sobrescreve uma localização já redefinida pelo sistema). Testes: `supabase/tests_geo.sql`.
 - Limite técnico: o GPS vem do aparelho; uma pessoa técnica pode falsificar coordenadas em chamadas diretas à API. A cerca reduz fraudes comuns, e a auditoria e a aprovação de ajustes cobrem o resto.
+
+
+## Segurança
+
+- **Sem lista pública de funcionários.** A tela de ponto usa `ponto_buscar` (mín. 3 letras, máx. 5 resultados); `ponto_lista_ativos` foi revogada.
+- **PIN forte.** 6 a 8 dígitos; sequências e repetições (123456, 111111…) são recusadas. PINs antigos de 4–5 dígitos continuam valendo até serem trocados; o painel avisa quais são.
+- **Bloqueio por origem.** 5 erros da mesma origem (IP) para a mesma pessoa bloqueiam por 10 min; 15 erros da mesma origem em qualquer pessoa também; 25 erros de origens diferentes para uma pessoa também. Um colega não consegue travar o outro digitando errado de outro lugar.
+- **Auditoria automática e imutável.** Gatilhos no banco registram quem mudou o quê (campo, valor antigo e novo) em funcionários, salários, marcações, folhas, ajustes, escalas, cargos, feriados, ocorrências, configurações e perfis. A tabela não aceita edição nem exclusão, nem de administrador. Configurações → Auditoria mostra o detalhe.
+- **Verificação em duas etapas (TOTP).** Configurações → Segurança. Quem ativa só tem acesso a dados com a sessão em nível *aal2* (senha + código), aplicado no servidor em `papel_atual()`. Requer TOTP habilitado em Supabase → Authentication → Sign In / Providers → Multi-Factor.
+- **Senhas do painel:** mínimo de 10 caracteres com letras e números (medidor de força e gerador).
+- **Cabeçalhos HTTP** (`vercel.json`): CSP restritiva, HSTS, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy` e `Permissions-Policy` (geolocalização só no próprio site).
+
+## Design e acessibilidade
+
+- Tokens de espaçamento, tipografia, elevação e movimento em `src/styles.css`; **tema claro/escuro/automático** e **densidade de tabelas** (compacta/confortável) no menu lateral, guardados no aparelho.
+- Esqueletos de carregamento, estados vazios com ilustração e ação, ícones em três tamanhos, foco visível, link "Pular para o conteúdo", tabelas rolláveis por teclado, respeito a *reduzir movimento* (o carrossel da faixa lateral só troca sozinho se o aparelho permitir e pausa com mouse/foco).
+- Tela de ponto: animação de sucesso, vibração, **modo quiosque** (tablet na recepção: relógio grande, botões grandes, reinício rápido) e retorno automático à tela inicial após a marcação.
+- Conformidade WCAG 2.1 AA verificada com axe-core nas telas principais (claro, escuro, computador e celular).
+
+## Documentos autênticos e impressão
+
+- Todo PDF (folha, demonstrativo, frequência, espelho) recebe um **código e um QR Code** no rodapé. A página pública `/verificar/<código>` confirma tipo, período, totais e o hash, sem dados pessoais (`supabase/migrations/0007_documentos.sql`).
+- Cada tela de tabela tem o botão **Imprimir** com layout próprio (cabeçalho do escritório, sem menus, sempre em tema claro).

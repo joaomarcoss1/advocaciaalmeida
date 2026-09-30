@@ -6,6 +6,9 @@ import {
 } from 'lucide-react';
 import marcaOuro from '@/assets/marca-ouro.png';
 import sqlAtualizacao from '../../supabase/atualizacao_definitiva.sql?raw';
+import Aparencia from '@/components/Aparencia';
+import { PaginaEsqueleto } from '@/components/ui';
+import logoHorizontal from '@/assets/logo-horizontal.png';
 import { useAuth } from '@/context/Auth';
 import { useDados } from '@/context/Dados';
 import { iniciais } from '@/lib/format';
@@ -43,6 +46,10 @@ function useRotulosDeTabela() {
           if (td.getAttribute('data-label') !== r) td.setAttribute('data-label', r);
         }));
       });
+      // Regiões rolagem horizontal precisam ser alcançáveis pelo teclado (WCAG 2.1.1)
+      document.querySelectorAll<HTMLElement>('.table-wrap').forEach(w => {
+        if (!w.hasAttribute('tabindex')) { w.setAttribute('tabindex', '0'); w.setAttribute('role', 'region'); w.setAttribute('aria-label', 'Tabela (use as setas para rolar)'); }
+      });
     };
     aplicar();
     const mo = new MutationObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(aplicar); });
@@ -74,6 +81,7 @@ export default function Layout() {
 
   return (
     <div className="shell">
+      <a className="skip" href="#conteudo" onClick={e => { e.preventDefault(); document.getElementById('conteudo')?.focus(); }}>Pular para o conteúdo</a>
       <header className="mobilebar">
         <button onClick={() => setAberto(true)} aria-label="Abrir menu"><Menu size={22} /></button>
         <span className="titulo">{atual?.rotulo ?? 'Almeida Advocacia'}</span>
@@ -99,6 +107,7 @@ export default function Layout() {
           <div className="nav-group">Acesso</div>
           <NavLink to="/"><Smartphone size={18} strokeWidth={1.7} />Tela de ponto</NavLink>
         </nav>
+        <div className="side-ap"><span>Aparência</span><Aparencia /></div>
         <div className="side-foot">
           <span className="avatar">{iniciais(sessao.nome)}</span>
           <div style={{ minWidth: 0 }}>
@@ -117,7 +126,8 @@ export default function Layout() {
             <span className="chip">{papel === 'admin' ? 'Administrador master' : 'Gerência'}</span>
           </div>
         </div>
-        <main className="content">
+        <main className="content" id="conteudo" tabIndex={-1}>
+          <div className="cab-impressao so-impressao"><img src={logoHorizontal} alt="" /><div className="t"><strong>{atual?.rotulo ?? 'Almeida Advocacia'}</strong>Impresso em {dataExtenso}<br />por {sessao.nome}</div></div>
           {modo === 'local' && <div className="demo-banner" style={{ marginBottom: 20 }}><strong>Modo demonstração</strong> · dados fictícios, salvos só neste navegador.</div>}
           {papel === 'admin' && atualizacaoPendente && modo === 'supabase' && (
             <div className="demo-banner" style={{ marginBottom: 20 }}>
@@ -135,7 +145,8 @@ export default function Layout() {
               {erroAtualizacao && <p className="muted" style={{ margin: '8px 0 0', fontSize: '.8rem' }}>Resposta do banco: {erroAtualizacao}</p>}
             </div>
           )}
-          {carregando ? <p className="muted">Carregando…</p> : <Outlet />}
+          {carregando ? <PaginaEsqueleto /> : <Outlet />}
+          <div className="rodape-impressao so-impressao">Almeida Advocacia &amp; Consultoria · documento gerencial de conferência. Autenticidade: use o QR Code dos PDFs oficiais.</div>
         </main>
       </div>
 

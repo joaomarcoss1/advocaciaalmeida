@@ -1,9 +1,11 @@
 /** Banco em memória persistido no localStorage: modo demonstração/teste, sem servidor. */
 import { CONFIG_PADRAO, mesclarConfig } from '@/lib/config';
 import { agoraBR, brParaIso, hhmmParaMin, isoParaBR } from '@/lib/datetime';
+import { semAcento } from '@/lib/format';
+import { validarPin as validarFormatoPin, validarSenha } from '@/lib/seguranca';
 import { classificar, distanciaMetros, exigeJustificativa, previstoDoTipo, turnoDaData } from '@/lib/ponto';
 import type { Auditoria, Config, Escala, Folha, Funcionario, RegistroPonto, Usuario } from '@/lib/types';
-import type { BaterArgs, Crud, Db, FolhasRepo, MarcacaoHistorico, PontoErro, PontoResp, RetroativoArgs, Sessao } from './db';
+import type { BaterArgs, Crud, Db, DocumentoVerificado, FolhasRepo, MarcacaoHistorico, PontoErro, PontoResp, RetroativoArgs, Sessao } from './db';
 import { gerarSeed, hashSecreto } from './seed';
 
 const P = 'almeida.v1.';
@@ -95,7 +97,7 @@ export function criarDbLocal(): Db {
       async criar(a) {
         const email = a.email.trim().toLowerCase();
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('Informe um e-mail válido.');
-        if (a.senha.length < 8) throw new Error('A senha deve ter pelo menos 8 caracteres.');
+        { const e = validarSenha(a.senha); if (e) throw new Error(e); }
         if (a.nome.trim().length < 2) throw new Error('Informe o nome.');
         if ((await usuarios.list()).some(u => u.email === email)) throw new Error('Já existe um usuário com esse e-mail.');
         await usuarios.insert({ nome: a.nome.trim(), email, papel: a.papel, ativo: true, senha_hash: await hashSecreto(email, a.senha) });
@@ -107,7 +109,7 @@ export function criarDbLocal(): Db {
         await usuarios.update(id, { nome: a.nome.trim() || undefined, papel: a.papel, ativo: a.ativo } as Partial<Usuario>);
       },
       async redefinirSenha(id, senha) {
-        if (senha.length < 8) throw new Error('A senha deve ter pelo menos 8 caracteres.');
+        { const e = validarSenha(senha); if (e) throw new Error(e); }
         const u = (await usuarios.list()).find(x => x.id === id);
         if (!u) throw new Error('Registro não encontrado.');
         await usuarios.update(id, { senha_hash: await hashSecreto(u.email, senha) });
@@ -121,6 +123,18 @@ export function criarDbLocal(): Db {
       },
     },
     auditoria: crud<Auditoria>('auditoria'),
+    documentos: {
+      // demonstração: os códigos ficam só neste navegador
+      async registrar(d) {
+        const cod = Array.from(crypto.getRandomValues(new Uint8Array(6))).map(n => n.toString(16).padStart(2, '0')).join('').toUpperCase();
+        const codigo = `${cod.slice(0, 4)}-${cod.slice(4, 8)}-${cod.slice(8, 12)}`;
+        const todos = lerTabela<DocumentoVerificado>('documentos');
+        todos.push({ ...d, codigo, emitido_por: 'Administração', emitido_em: new Date().toISOString() });
+        localStorage.setItem(P + 'documentos', JSON.stringify(todos));
+        return codigo;
+      },
+      async verificar(codigo) { return lerTabela<DocumentoVerificado>('documentos').find(x => x.codigo === codigo.trim().toUpperCase()) ?? null; },
+    },
     config: {
       async get() { return cfgAtual(); },
       async save(c) { localStorage.setItem(P + 'config', JSON.stringify(c)); },
@@ -137,7 +151,15 @@ export function criarDbLocal(): Db {
         localStorage.setItem(P + 'sessao', JSON.stringify(s));
         return s;
       },
+      async verificarMfa(): Promise<Sessao> { throw new Error('Verificação em duas etapas não existe no modo demonstração.'); },
       async sair() { localStorage.removeItem(P + 'sessao'); },
+      mfa: {
+        disponivel: false,
+        async estado() { return { ativo: false, fatores: [] }; },
+        async iniciar(): Promise<{ fatorId: string; qr: string; segredo: string }> { throw new Error('Indisponível no modo demonstração.'); },
+        async confirmar() { throw new Error('Indisponível no modo demonstração.'); },
+        async remover() { throw new Error('Indisponível no modo demonstração.'); },
+      },
     },
     async equipe() {
       return (await funcionarios.list()).map(f => ({
@@ -146,8 +168,9 @@ export function criarDbLocal(): Db {
       }));
     },
     async definirPin(fid, pin) {
-      if (!/^\d{4,8}$/.test(pin)) throw new Error('O PIN deve ter de 4 a 8 números.');
-      await funcionarios.update(fid, { pin_hash: await hashSecreto(fid, pin), tem_pin: true });
+      const problema = validarFormatoPin(pin);
+      if (problema) throw new Error(problema);
+      await funcionarios.update(fid, { pin_hash: await hashSecreto(fid, pin), tem_pin: true, pin_curto: false });
       const t = tentativas(); delete t[fid]; localStorage.setItem(P + 'pin_tentativas', JSON.stringify(t));
     },
     async aprovarPonto(rid, acao, motivo) {
@@ -164,12 +187,14 @@ export function criarDbLocal(): Db {
       await registros.update(rid, { status_aprovacao: 'aprovado', status: c.status, diferenca_minutos: c.diferenca, motivo_rejeicao: null, aprovado_por: sessao?.id ?? null, aprovado_em: new Date().toISOString() });
     },
     ponto: {
-      async listarAtivos() {
+      async buscar(termo) {
+        const q = semAcento(termo.trim());
+        if (q.length < 3) return [];
         const cargos = lerTabela<{ id: string; nome: string }>('cargos');
         const hoje = agoraBR().data;
         return (await funcionarios.list())
-          .filter(f => f.ativo && f.tem_pin && (!f.data_desligamento || f.data_desligamento >= hoje))
-          .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+          .filter(f => f.ativo && f.tem_pin && (!f.data_desligamento || f.data_desligamento >= hoje) && semAcento(f.nome).includes(q))
+          .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).slice(0, 5)
           .map(f => ({ id: f.id, nome: f.nome, cargo_nome: cargos.find(c => c.id === f.cargo_id)?.nome ?? null, escala_id: f.escala_id }));
       },
       async escala(escalaId) { return lerTabela<Escala>('escalas').find(e => e.id === escalaId) ?? null; },

@@ -12,6 +12,8 @@ do $$ begin
 end $$;
 create schema auth;
 create table auth.users (id uuid primary key default gen_random_uuid(), email text);
+create table auth.mfa_factors (id uuid primary key default gen_random_uuid(), user_id uuid, status text);
+create function auth.jwt() returns jsonb language sql stable as $$ select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
 grant usage on schema public, auth to anon, authenticated;
 alter default privileges in schema public grant all on tables to anon, authenticated;
@@ -29,5 +31,9 @@ $P -d almeida_test -f migrations/0003_corrige_search_path.sql
 $P -d almeida_test -f migrations/0004_ajustes_manuais.sql
 $P -d almeida_test -f migrations/0005_geofence.sql
 $P -d almeida_test -f migrations/0005_geofence.sql   # idempotência
+$P -d almeida_test -f migrations/0006_seguranca.sql
+$P -d almeida_test -f migrations/0006_seguranca.sql   # idempotência
+$P -d almeida_test -f migrations/0007_documentos.sql
+$P -d almeida_test -f migrations/0007_documentos.sql   # idempotência
 $P -d almeida_test -f migrations/0004_ajustes_manuais.sql   # idempotência
-for f in tests_rpc.sql tests_usuarios.sql tests_folha.sql tests_geo.sql; do psql -q -X -d almeida_test -f $f 2>&1 | sed 's/^psql:[^ ]* //' | grep -v '^CONTEXT\|^SQL statement\|^PL/pgSQL'; done
+for f in tests_rpc.sql tests_usuarios.sql tests_folha.sql tests_geo.sql tests_seguranca.sql tests_documentos.sql; do psql -q -X -d almeida_test -f $f 2>&1 | sed 's/^psql:[^ ]* //' | grep -v '^CONTEXT\|^SQL statement\|^PL/pgSQL'; done

@@ -74,7 +74,7 @@ export default function Feriados() {
             ))}
           </tbody>
         </table>
-        {!doAno.length && <Vazio>Nenhum feriado cadastrado em {ano}.</Vazio>}
+        {!doAno.length && <Vazio tipo="calendario" titulo={`Nenhum feriado em ${ano}`}>Feriados e recessos não contam como dia previsto de trabalho.</Vazio>}
       </div>
       <p className="hint" style={{ marginTop: 12 }}>Pontos facultativos (Carnaval, Corpus Christi) só valem se o escritório fechar: remova os que não forem adotados. O recesso forense (20/12 a 20/01) suspende prazos, mas não fecha o escritório automaticamente — cadastre aqui os dias em que não haverá expediente.</p>
 

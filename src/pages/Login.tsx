@@ -1,25 +1,32 @@
 import { useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Eye, EyeOff, Lock, Mail } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, Lock, Mail, ShieldCheck } from 'lucide-react';
 import Stage from '@/components/Stage';
 import { useAuth } from '@/context/Auth';
 import { DEMO_ADMIN, DEMO_GERENTE } from '@/data/seed';
 
 export default function Login() {
-  const { sessao, carregando, entrar, modo } = useAuth();
+  const { sessao, carregando, entrar, verificarMfa, modo } = useAuth();
   const nav = useNavigate();
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [ver, setVer] = useState(false);
   const [erro, setErro] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [etapaCodigo, setEtapaCodigo] = useState(false);
+  const [codigo, setCodigo] = useState('');
 
   if (!carregando && sessao) return <Navigate to="/painel" replace />;
 
   async function enviar(e: FormEvent) {
     e.preventDefault();
     setErro(''); setEnviando(true);
-    try { await entrar(email, senha); nav('/painel'); }
+    try {
+      if (etapaCodigo) { await verificarMfa(codigo); nav('/painel'); return; }
+      const r = await entrar(email, senha);
+      if (r === 'mfa') { setEtapaCodigo(true); setCodigo(''); return; }
+      nav('/painel');
+    }
     catch (x) { setErro((x as Error).message); }
     finally { setEnviando(false); }
   }
@@ -36,6 +43,14 @@ export default function Login() {
             <h1>Entrar na plataforma</h1>
             <p className="page-sub" style={{ marginTop: 8 }}>Administração e gerência do escritório.</p>
           </div>
+          {etapaCodigo ? (
+            <div className="field">
+              <label htmlFor="codigo"><ShieldCheck size={15} style={{ verticalAlign: 'middle' }} /> Código de verificação</label>
+              <input id="codigo" className="input" style={{ letterSpacing: '.35em', textAlign: 'center', fontSize: '1.4rem' }} inputMode="numeric" autoComplete="one-time-code" maxLength={6} autoFocus required
+                value={codigo} onChange={e => setCodigo(e.target.value.replace(/\D/g, ''))} aria-describedby="dica-codigo" />
+              <p id="dica-codigo" className="hint">Abra o aplicativo autenticador no celular e digite o código de 6 números de “Almeida Advocacia”.</p>
+            </div>
+          ) : (<>
           <div className="field">
             <label htmlFor="email">E-mail</label>
             <div style={{ position: 'relative' }}>
@@ -51,8 +66,10 @@ export default function Login() {
               <button type="button" className="icon-btn" style={{ position: 'absolute', right: 4, top: 4 }} aria-label={ver ? 'Ocultar senha' : 'Mostrar senha'} onClick={() => setVer(v => !v)}>{ver ? <EyeOff size={18} /> : <Eye size={18} />}</button>
             </div>
           </div>
+          </>)}
           {erro && <div className="notice bad" role="alert">{erro}</div>}
-          <button className="btn block" style={{ minHeight: 48 }} disabled={enviando}>{enviando ? 'Entrando…' : 'Entrar'}</button>
+          <button className="btn block" style={{ minHeight: 48 }} disabled={enviando || (etapaCodigo && codigo.length !== 6)}>{enviando ? 'Verificando…' : etapaCodigo ? 'Confirmar código' : 'Entrar'}</button>
+          {etapaCodigo && <button type="button" className="btn ghost block" onClick={() => { setEtapaCodigo(false); setCodigo(''); setErro(''); }}>Voltar</button>}
           {modo === 'local' && (
             <div className="demo-banner">
               <strong>Demonstração</strong> — Administrador: <code>{DEMO_ADMIN.email}</code> / <code>{DEMO_ADMIN.senha}</code><br />

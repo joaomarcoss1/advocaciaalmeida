@@ -64,6 +64,8 @@ export interface Funcionario {
   /** Diária fixa (opcional). Se preenchida, substitui o cálculo salário ÷ dias previstos. */
   diaria_fixa?: number | null;
   tem_pin: boolean;
+  /** PIN antigo de 4 a 5 dígitos (redefinir). */
+  pin_curto?: boolean;
   /** Somente no modo local. No Supabase o hash fica em tabela separada, nunca vai ao navegador. */
   pin_hash?: string | null;
   ativo: boolean;
@@ -266,4 +268,9 @@ export interface Auditoria {
   acao: string;
   detalhe: string;
   created_at: string;
+  /** Preenchidos pelos gatilhos do banco. */
+  tabela?: string | null;
+  registro_id?: string | null;
+  antes?: Record<string, unknown> | null;
+  depois?: Record<string, unknown> | null;
 }

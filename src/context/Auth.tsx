@@ -5,7 +5,8 @@ interface AuthCtx {
   sessao: Sessao | null;
   carregando: boolean;
   modo: 'local' | 'supabase' | null;
-  entrar(email: string, senha: string): Promise<Sessao>;
+  entrar(email: string, senha: string): Promise<Sessao | 'mfa'>;
+  verificarMfa(codigo: string): Promise<Sessao>;
   sair(): Promise<void>;
 }
 const Ctx = createContext<AuthCtx | null>(null);
@@ -27,12 +28,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const entrar = useCallback(async (email: string, senha: string) => {
     const s = await (await getDb()).auth.entrar(email, senha);
+    if (s !== 'mfa') setSessao(s);
+    return s;
+  }, []);
+  const verificarMfa = useCallback(async (codigo: string) => {
+    const s = await (await getDb()).auth.verificarMfa(codigo);
     setSessao(s);
     return s;
   }, []);
   const sair = useCallback(async () => { await (await getDb()).auth.sair(); setSessao(null); }, []);
 
-  const valor = useMemo(() => ({ sessao, carregando, modo, entrar, sair }), [sessao, carregando, modo, entrar, sair]);
+  const valor = useMemo(() => ({ sessao, carregando, modo, entrar, verificarMfa, sair }), [sessao, carregando, modo, entrar, verificarMfa, sair]);
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }
 export function useAuth() {

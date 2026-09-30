@@ -89,7 +89,7 @@ export default function Escalas() {
           </div>
         ))}
       </div>
-      {!escalas.length && <div className="card"><Vazio>Nenhuma escala cadastrada.</Vazio></div>}
+      {!escalas.length && <div className="card"><Vazio tipo="calendario" titulo="Nenhuma escala cadastrada">A escala define os dias e horários de cada pessoa, base do cálculo da diária.</Vazio></div>}
 
       {ed && (
         <Modal largo titulo={ed.id ? 'Editar escala' : 'Nova escala'} onClose={() => setEd(null)}

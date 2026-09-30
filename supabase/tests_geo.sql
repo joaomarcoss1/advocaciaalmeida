@@ -12,30 +12,30 @@ begin
   insert into public.perfis (id, nome, email, papel) values ('00000000-0000-0000-0000-0000000000c1','Geo','geo@x','admin') on conflict do nothing;
 end $$;
 set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000c1';
-select 'pin:' || (public.definir_pin('00000000-0000-0000-0000-00000000f0a1','1357') is not null);
+select 'pin:' || (public.definir_pin('00000000-0000-0000-0000-00000000f0a1','864209') is not null);
 reset role;
 update public.configuracoes set dados = jsonb_set(dados, '{ponto,geofence_ativo}', 'true') where id = 'global';
 select 'config: ' || (dados -> 'ponto' ->> 'geofence_ativo') || ' raio=' || (dados -> 'ponto' ->> 'geofence_raio_m') || ' lat=' || (dados -> 'ponto' ->> 'geofence_lat') from public.configuracoes where id = 'global';
 set role anon;
 \echo == sem GPS -> GPS_OBRIGATORIO
-select public.ponto_bater('00000000-0000-0000-0000-00000000f0a1','1357','entrada') ->> 'erro';
+select public.ponto_bater('00000000-0000-0000-0000-00000000f0a1','864209','entrada') ->> 'erro';
 \echo == 5 km do escritório -> FORA_DA_AREA
-select public.ponto_bater('00000000-0000-0000-0000-00000000f0a1','1357','entrada', null, -4.505, -43.888) ->> 'erro';
+select public.ponto_bater('00000000-0000-0000-0000-00000000f0a1','864209','entrada', null, -4.505, -43.888) ->> 'erro';
 \echo == 1,2 km (fora do raio de 900 m) -> FORA_DA_AREA
-select public.ponto_bater('00000000-0000-0000-0000-00000000f0a1','1357','entrada', null, -4.460791 + 0.0108, -43.888099) -> 'detalhe';
+select public.ponto_bater('00000000-0000-0000-0000-00000000f0a1','864209','entrada', null, -4.460791 + 0.0108, -43.888099) -> 'detalhe';
 \echo == coordenadas inválidas -> GPS_OBRIGATORIO
-select public.ponto_bater('00000000-0000-0000-0000-00000000f0a1','1357','entrada', null, 999, 999) ->> 'erro';
+select public.ponto_bater('00000000-0000-0000-0000-00000000f0a1','864209','entrada', null, 999, 999) ->> 'erro';
 \echo == a 850 m (dentro) -> ok
-select public.ponto_bater('00000000-0000-0000-0000-00000000f0a1','1357','entrada', null, -4.460791 + 0.00765, -43.888099) ->> 'ok';
+select public.ponto_bater('00000000-0000-0000-0000-00000000f0a1','864209','entrada', null, -4.460791 + 0.00765, -43.888099) ->> 'ok';
 reset role;
 select 'gravou lat/lng: ' || count(*) from public.registros_ponto where funcionario_id = '00000000-0000-0000-0000-00000000f0a1' and latitude is not null;
 \echo == admin muda o centro (config sem lat/lng) -> usa o escritório como padrão
 update public.configuracoes set dados = jsonb_set(dados, '{ponto}', (dados -> 'ponto') - 'geofence_lat' - 'geofence_lng') where id = 'global';
 set role anon;
-select public.ponto_bater('00000000-0000-0000-0000-00000000f0a1','1357','saida', 'sair cedo teste', -4.60, -43.9) ->> 'erro';
+select public.ponto_bater('00000000-0000-0000-0000-00000000f0a1','864209','saida', 'sair cedo teste', -4.60, -43.9) ->> 'erro';
 reset role;
 \echo == cerca desativada -> qualquer lugar
 update public.configuracoes set dados = jsonb_set(dados, '{ponto,geofence_ativo}', 'false') where id = 'global';
 set role anon;
-select public.ponto_bater('00000000-0000-0000-0000-00000000f0a1','1357','saida', 'sair cedo teste', -4.60, -43.9) ->> 'ok';
+select public.ponto_bater('00000000-0000-0000-0000-00000000f0a1','864209','saida', 'sair cedo teste', -4.60, -43.9) ->> 'ok';
 reset role;

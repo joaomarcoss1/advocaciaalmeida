@@ -18,7 +18,8 @@ begin
   if not public.eh_admin() then raise exception 'SEM_PERMISSAO'; end if;
   if p_papel not in ('admin', 'gerente') then raise exception 'PAPEL_INVALIDO'; end if;
   if v_email !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' then raise exception 'EMAIL_INVALIDO'; end if;
-  if length(coalesce(p_senha, '')) < 8 then raise exception 'SENHA_CURTA'; end if;
+  if length(coalesce(p_senha, '')) < 10 then raise exception 'SENHA_CURTA'; end if;
+  if p_senha !~ '[A-Za-z]' or p_senha !~ '[0-9]' then raise exception 'SENHA_FRACA'; end if;
   if length(trim(coalesce(p_nome, ''))) < 2 then raise exception 'NOME_OBRIGATORIO'; end if;
   if exists (select 1 from auth.users where lower(email) = v_email) then raise exception 'EMAIL_EXISTE'; end if;
 
@@ -50,7 +51,8 @@ create or replace function public.redefinir_senha_usuario(p_id uuid, p_senha tex
 language plpgsql security definer set search_path = public, extensions, pg_temp as $$
 begin
   if not public.eh_admin() then raise exception 'SEM_PERMISSAO'; end if;
-  if length(coalesce(p_senha, '')) < 8 then raise exception 'SENHA_CURTA'; end if;
+  if length(coalesce(p_senha, '')) < 10 then raise exception 'SENHA_CURTA'; end if;
+  if p_senha !~ '[A-Za-z]' or p_senha !~ '[0-9]' then raise exception 'SENHA_FRACA'; end if;
   update auth.users set encrypted_password = crypt(p_senha, gen_salt('bf')), updated_at = now() where id = p_id;
   if not found then raise exception 'NAO_ENCONTRADO'; end if;
   insert into public.auditoria (usuario, acao, detalhe)

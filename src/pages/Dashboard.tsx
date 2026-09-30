@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle } from 'lucide-react';
 import Presenca from '@/components/Presenca';
 import { Kpi, PageHeader } from '@/components/ui';
+import { useAuth } from '@/context/Auth';
 import { useDados } from '@/context/Dados';
 import { fmtData, nomeMes, primeiroDoMes, ultimoDoMes } from '@/lib/datetime';
 import { calcularPeriodo, situacaoHoje } from '@/lib/folhaLote';
@@ -10,6 +11,12 @@ import { brl } from '@/lib/format';
 
 export default function Dashboard() {
   const dados = useDados();
+  const { sessao } = useAuth();
+  const [semDoisFatores, setSemDoisFatores] = useState(false);
+  useEffect(() => {
+    if (!dados.db.auth.mfa.disponivel || sessao?.papel !== 'admin') return;
+    dados.db.auth.mfa.estado().then(e => setSemDoisFatores(!e.ativo)).catch(() => undefined);
+  }, [dados.db, sessao?.papel]);
   const { funcionarios, registros, feriados, agora } = dados;
   const ini = primeiroDoMes(agora.data), fim = ultimoDoMes(agora.data);
   const mes = useMemo(() => calcularPeriodo(dados, ini, fim), [dados, ini, fim]);
@@ -23,6 +30,7 @@ export default function Dashboard() {
   const alertas: { texto: string; para: string }[] = [
     ...ativos.filter(f => !f.escala_id).map(f => ({ texto: `${f.nome} está sem escala de trabalho.`, para: `editar=${f.id}` })),
     ...ativos.filter(f => !(f.salario_mensal > 0)).map(f => ({ texto: `${f.nome} está sem salário cadastrado.`, para: `editar=${f.id}` })),
+    ...ativos.filter(f => f.tem_pin && f.pin_curto).map(f => ({ texto: `${f.nome} usa um PIN antigo e curto (4 a 5 dígitos). Defina um novo de 6+ dígitos.`, para: `pin=${f.id}` })),
     ...ativos.filter(f => !f.tem_pin).map(f => ({ texto: `${f.nome} ainda não tem PIN de ponto.`, para: `pin=${f.id}` })),
   ];
   const maxOcorr = Math.max(1, ...mes.map(l => l.calc.faltas + l.calc.atrasos + l.calc.saidas_antecipadas));
@@ -39,6 +47,12 @@ export default function Dashboard() {
         <Kpi label="Faltas no mês" valor={faltas} dica={`${atrasos} atraso(s)/saída(s) antecipada(s)`} alerta={faltas > 0} />
         <Kpi label="Folha do mês (prévia)" valor={brl(folha)} dica={<Link to="/painel/folha">Abrir folha</Link>} />
       </div>
+
+      {semDoisFatores && (
+        <div className="card card-pad" style={{ marginBottom: 18, borderColor: '#ecdcb4', background: 'var(--gold-tint)' }}>
+          <strong>Proteja sua conta de administrador.</strong> Ative a verificação em duas etapas: além da senha, o login pede um código do celular. <Link to="/painel/configuracoes?aba=seguranca">Ativar agora →</Link>
+        </div>
+      )}
 
       {alertas.length > 0 && (
         <div className="card card-pad" style={{ marginBottom: 18, borderColor: '#ecdcb4', background: 'var(--gold-tint)' }}>

@@ -53,7 +53,7 @@ export function TabelaAprovacoes() {
             </tbody>
           </table>
         </div>
-      ) : <Vazio>Nenhum ajuste de ponto aguardando aprovação.</Vazio>}
+      ) : <Vazio tipo="ok" titulo="Tudo em dia">Nenhum ajuste de ponto aguardando aprovação.</Vazio>}
       {rejeitar && (
         <Modal titulo="Rejeitar ajuste" onClose={() => setRejeitar(null)}
           rodape={<><button className="btn ghost" onClick={() => setRejeitar(null)}>Cancelar</button><button className="btn danger" disabled={motivo.trim().length < 3} onClick={confirmarRejeicao}>Rejeitar</button></>}>
@@ -180,7 +180,7 @@ export default function Registros() {
                   })}
                 </tbody>
               </table>
-              {!lista.length && <Vazio>Nenhum registro no filtro selecionado.</Vazio>}
+              {!lista.length && <Vazio tipo="busca" titulo="Nenhum registro encontrado">Mude o período ou o funcionário do filtro.</Vazio>}
               {lista.length > 400 && <p className="hint center" style={{ padding: 10 }}>Mostrando 400 de {lista.length}. Refine o período.</p>}
             </div>
           </>

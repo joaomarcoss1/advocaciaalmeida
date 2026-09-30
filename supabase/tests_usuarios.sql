@@ -7,10 +7,10 @@ insert into public.perfis (id, nome, email, papel) values
 
 \echo == U1. gerente NÃO cria usuário
 set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000c2';
-select public.criar_usuario('novo@x.com','senha1234','Novo','admin');
+select public.criar_usuario('novo@x.com','senha123456','Novo','admin');
 \echo == U2. anon NÃO executa
 reset role; set role anon; reset request.jwt.claim.sub;
-select public.criar_usuario('novo@x.com','senha1234','Novo','admin');
+select public.criar_usuario('novo@x.com','senha123456','Novo','admin');
 
 \echo == U3. admin cria admin e gerente; valida entradas
 reset role; set role authenticated; set request.jwt.claim.sub = '00000000-0000-0000-0000-0000000000c1';
@@ -19,6 +19,7 @@ select public.criar_usuario('gerente@escritorio.com','segredo123','Gerente Novo'
 select public.criar_usuario('gerente@escritorio.com','segredo123','Duplicado','gerente');
 select public.criar_usuario('semarroba','segredo123','X','gerente');
 select public.criar_usuario('curta@x.com','1234567','X','gerente');
+select public.criar_usuario('fraca@x.com','somenteletras','X','gerente');
 select public.criar_usuario('papel@x.com','segredo123','X','superuser');
 reset role;
 select email, papel, ativo from public.perfis order by email;

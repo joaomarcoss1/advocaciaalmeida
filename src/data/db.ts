@@ -16,6 +16,8 @@ export interface FolhasRepo extends Crud<Folha> {
 
 export interface Sessao { id: string; email: string; nome: string; papel: Papel }
 
+export type TipoDocumento = 'folha' | 'holerite' | 'frequencia' | 'espelho';
+export interface DocumentoVerificado { codigo: string; tipo: TipoDocumento; titulo: string; periodo: string; resumo: Record<string, unknown>; hash: string; emitido_por: string; emitido_em: string }
 export interface PessoaPonto { id: string; nome: string; cargo_nome: string | null; escala_id: string | null }
 export interface ContextoPonto { ponto: ConfigPonto; escritorio_nome: string; feriado: string | null }
 
@@ -64,18 +66,33 @@ export interface Db {
     remover(id: string): Promise<void>;
   };
   auditoria: Crud<Auditoria>;
+  /** Autenticidade dos PDFs: cada documento emitido recebe um código e um QR Code verificável em /verificar. */
+  documentos: {
+    registrar(d: { tipo: TipoDocumento; titulo: string; periodo: string; resumo: Record<string, unknown>; hash: string }): Promise<string>;
+    verificar(codigo: string): Promise<DocumentoVerificado | null>;
+  };
   config: { get(): Promise<Config>; save(c: Config): Promise<void> };
   auth: {
     sessao(): Promise<Sessao | null>;
-    entrar(email: string, senha: string): Promise<Sessao>;
+    /** Devolve 'mfa' quando a conta tem verificação em duas etapas: falta informar o código do aplicativo. */
+    entrar(email: string, senha: string): Promise<Sessao | 'mfa'>;
+    verificarMfa(codigo: string): Promise<Sessao>;
     sair(): Promise<void>;
+    mfa: {
+      disponivel: boolean;
+      estado(): Promise<{ ativo: boolean; fatores: { id: string; nome: string; criado: string }[] }>;
+      iniciar(): Promise<{ fatorId: string; qr: string; segredo: string }>;
+      confirmar(fatorId: string, codigo: string): Promise<void>;
+      remover(fatorId: string): Promise<void>;
+    };
   };
   /** Equipe sem dados sensíveis (usada pela gerência). */
   equipe(): Promise<FuncionarioBasico[]>;
   definirPin(funcionarioId: string, pin: string): Promise<void>;
   aprovarPonto(id: string, acao: 'aprovar' | 'rejeitar', motivo?: string): Promise<void>;
   ponto: {
-    listarAtivos(): Promise<PessoaPonto[]>;
+    /** Busca no servidor (mín. 3 letras, no máx. 5 resultados): a lista completa da equipe nunca é exposta. */
+    buscar(termo: string): Promise<PessoaPonto[]>;
     escala(escalaId: string): Promise<Escala | null>;
     contexto(): Promise<ContextoPonto>;
     bater(a: BaterArgs): Promise<PontoResp<{ status: RegistroPonto['status']; diferenca_minutos: number; horario_real: string }>>;

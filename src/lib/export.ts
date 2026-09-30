@@ -5,6 +5,7 @@ import logoVertical from '@/assets/logo-vertical.png';
 import { agoraBR, fmtData, isoParaBR } from './datetime';
 import type { FolhaCalculada } from './folha';
 import { minParaHoras } from './format';
+import type { Selo } from './selo';
 import { SITUACAO_DIA } from './rotulos';
 import { AJUSTE_LABEL, OCORRENCIA_LABEL, type AjusteFolha, type ConfigEscritorio, type Funcionario, type RegistroPonto, type TipoOcorrencia } from './types';
 
@@ -14,7 +15,7 @@ const CINZA: [number, number, number] = [244, 246, 250];
 const NAVY_HEX = '002060', GOLD_HEX = 'D1B47D', CINZA_HEX = 'F4F6FA';
 
 export interface LinhaExport { func: Funcionario; cargo: string; calc: FolhaCalculada; ajustes?: AjusteFolha[] }
-export interface CabecalhoExport { escritorio: ConfigEscritorio; periodo: string }
+export interface CabecalhoExport { escritorio: ConfigEscritorio; periodo: string; selo?: Selo }
 
 const R = (n: number) => `R$ ${n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const emissao = () => { const a = agoraBR(); return `${fmtData(a.data)} às ${a.hhmm}`; };
@@ -48,13 +49,24 @@ async function cabecalhoPdf(doc: jsPDF, titulo: string, sub: string, cab: Cabeca
   doc.setFont('helvetica', 'normal'); doc.text(`Emitido em ${emissao()}`, w - 10, 38, { align: 'right' });
   return 46;
 }
-function rodapePdf(doc: jsPDF, texto: string) {
+/** Rodapé de todas as páginas: texto, paginação e, quando há selo, QR Code + código de autenticidade. */
+function rodapePdf(doc: jsPDF, texto: string, selo?: Selo) {
   const n = doc.getNumberOfPages();
   for (let i = 1; i <= n; i++) {
     doc.setPage(i);
     const w = doc.internal.pageSize.getWidth(), h = doc.internal.pageSize.getHeight();
     doc.setFontSize(7.5); doc.setTextColor(120, 128, 150);
-    doc.text(`${texto} · Página ${i} de ${n}`, w / 2, h - 6, { align: 'center' });
+    if (selo) doc.text(`${texto} · Página ${i} de ${n}`, w - 8, h - 6, { align: 'right' });
+    else doc.text(`${texto} · Página ${i} de ${n}`, w / 2, h - 6, { align: 'center' });
+    if (selo) {
+      const q = 15;
+      doc.addImage(selo.qr, 'PNG', 8, h - q - 4, q, q);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(...NAVY);
+      doc.text('AUTENTICIDADE', 8 + q + 3, h - 14.5);
+      doc.setFont('helvetica', 'normal'); doc.setTextColor(90, 102, 133);
+      doc.text(`Código ${selo.codigo}`, 8 + q + 3, h - 11);
+      doc.text(`Confira em ${selo.url.replace(/^https?:\/\//, '')}`, 8 + q + 3, h - 7.6);
+    }
   }
 }
 
@@ -96,7 +108,7 @@ export async function folhaPdf(linhas: LinhaExport[], cab: CabecalhoExport) {
     doc.setFontSize(9); doc.setTextColor(60, 70, 100);
     doc.text('Gerência', 60, fy + 5, { align: 'center' }); doc.text('Administração / Sócio responsável', w - 60, fy + 5, { align: 'center' });
   }
-  rodapePdf(doc, 'Documento gerencial de conferência · encargos legais (INSS, IRRF, FGTS) não incluídos');
+  rodapePdf(doc, 'Documento gerencial de conferência · encargos legais (INSS, IRRF, FGTS) não incluídos', cab.selo);
   doc.save(`Folha-${cab.periodo.replace(/[^\w]+/g, '_')}.pdf`);
 }
 
@@ -160,7 +172,7 @@ export async function holeritePdf(l: LinhaExport, cab: CabecalhoExport) {
   doc.setDrawColor(...NAVY); doc.line(20, sy, 90, sy); doc.line(120, sy, 190, sy);
   doc.setFontSize(9); doc.setTextColor(60, 70, 100);
   doc.text('Funcionário(a)', 55, sy + 5, { align: 'center' }); doc.text('Responsável pelo pagamento', 155, sy + 5, { align: 'center' });
-  rodapePdf(doc, 'Documento gerencial de conferência · não substitui o recibo/holerite oficial (INSS, IRRF e FGTS não incluídos)');
+  rodapePdf(doc, 'Documento gerencial de conferência · não substitui o recibo/holerite oficial (INSS, IRRF e FGTS não incluídos)', cab.selo);
   doc.save(`Demonstrativo-${l.func.nome.replace(/\s+/g, '_')}-${cab.periodo.replace(/[^\w]+/g, '_')}.pdf`);
 }
 
@@ -221,7 +233,7 @@ export async function frequenciaPdf(linhas: LinhaFrequencia[], cab: CabecalhoExp
     styles: { fontSize: 9, textColor: [13, 26, 56] }, headStyles: { fillColor: NAVY, textColor: 255 }, alternateRowStyles: { fillColor: CINZA },
     columnStyles: { 2: { halign: 'center' }, 3: { halign: 'center' }, 4: { halign: 'center' }, 5: { halign: 'center' }, 6: { halign: 'center' }, 7: { halign: 'center' }, 8: { halign: 'center' } },
   });
-  rodapePdf(doc, cab.escritorio.nome);
+  rodapePdf(doc, cab.escritorio.nome, cab.selo);
   doc.save(`Frequencia-${cab.periodo.replace(/[^\w]+/g, '_')}.pdf`);
 }
 
@@ -249,6 +261,6 @@ export async function espelhoPdf(func: Funcionario, cargo: string, calc: FolhaCa
   const fy = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 6;
   doc.setFontSize(9); doc.setTextColor(60, 70, 100);
   doc.text(`Previstos: ${calc.dias_previstos} · Trabalhados: ${calc.dias_trabalhados} · Abonados: ${calc.dias_abonados} · Faltas: ${calc.faltas} · Atrasos: ${calc.atrasos}`, 14, fy);
-  rodapePdf(doc, cab.escritorio.nome);
+  rodapePdf(doc, cab.escritorio.nome, cab.selo);
   doc.save(`Espelho-${func.nome.replace(/\s+/g, '_')}-${cab.periodo.replace(/[^\w]+/g, '_')}.pdf`);
 }

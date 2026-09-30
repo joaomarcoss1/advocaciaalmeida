@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { FileDown, FileSpreadsheet } from 'lucide-react';
-import { Abas, Badge, Field, PageHeader, Vazio } from '@/components/ui';
+import { Abas, Badge, Field, PageHeader, useToast, Vazio } from '@/components/ui';
+import { criarSelo } from '@/lib/selo';
 import { useDados } from '@/context/Dados';
 import { fmtData, isoParaBR, primeiroDoMes } from '@/lib/datetime';
 import type { LinhaFrequencia } from '@/lib/export';
@@ -25,6 +26,16 @@ export default function Relatorios() {
     faltas: l.calc.faltas, atrasos: l.calc.atrasos, saidas: l.calc.saidas_antecipadas, minutosAtraso: l.calc.minutos_atraso,
   }));
   const cab = { escritorio: config.escritorio, periodo: `${fmtData(ini)} a ${fmtData(fim)}` };
+  const toast = useToast();
+  const gerarFrequenciaPdf = async () => {
+    const [m, selo] = await Promise.all([exportar(), criarSelo(dados.db, { tipo: 'frequencia', titulo: 'Relatório de frequência', periodo: cab.periodo, resumo: { funcionarios: freq.length, faltas: freq.reduce((t, l) => t + l.faltas, 0) }, conteudo: freq })]);
+    await m.frequenciaPdf(freq, { ...cab, selo });
+  };
+  const gerarEspelhoPdf = async () => {
+    if (!sel) return;
+    const [m, selo] = await Promise.all([exportar(), criarSelo(dados.db, { tipo: 'espelho', titulo: 'Espelho de ponto', periodo: cab.periodo, resumo: { faltas: sel.calc.faltas, dias_trabalhados: sel.calc.dias_trabalhados }, conteudo: [sel.func.id, sel.calc.faltas, sel.calc.dias_trabalhados, sel.calc.dias_previstos] })]);
+    await m.espelhoPdf(sel.func, cargo(sel.func.cargo_id), sel.calc, registros, { ...cab, selo }, ocorrencias.filter(o => o.funcionario_id === sel.func.id));
+  };
   const sel = linhas.find(l => l.func.id === fid);
   const hora = (data: string, tipo: string) => {
     const r = registros.find(x => x.funcionario_id === fid && x.data === data && x.tipo === tipo && x.status_aprovacao === 'aprovado');
@@ -47,7 +58,7 @@ export default function Relatorios() {
             <div className="card-head">
               <span className="muted">{linhas.length} funcionário(s) · dias futuros não entram como falta</span>
               <div className="row">
-                <button className="btn ghost sm" disabled={!freq.length} onClick={() => exportar().then(m => m.frequenciaPdf(freq, cab))}><FileDown size={16} />PDF</button>
+                <button className="btn ghost sm" disabled={!freq.length} onClick={() => gerarFrequenciaPdf().catch(e => toast.erro((e as Error).message))}><FileDown size={16} />PDF</button>
                 <button className="btn ghost sm" disabled={!freq.length} onClick={() => exportar().then(m => m.frequenciaXlsx(freq, cab))}><FileSpreadsheet size={16} />Excel</button>
               </div>
             </div>
@@ -63,7 +74,7 @@ export default function Relatorios() {
                   ))}
                 </tbody>
               </table>
-              {!freq.length && <Vazio>Sem dados para o período.</Vazio>}
+              {!freq.length && <Vazio tipo="busca" titulo="Sem dados no período">Escolha outro intervalo de datas.</Vazio>}
             </div>
           </>
         )}
@@ -74,7 +85,7 @@ export default function Relatorios() {
               <select className="select" style={{ maxWidth: 340 }} value={fid} onChange={e => setFid(e.target.value)} aria-label="Funcionário">
                 <option value="">Selecione o funcionário…</option>{linhas.map(l => <option key={l.func.id} value={l.func.id}>{l.func.nome}</option>)}
               </select>
-              <button className="btn ghost sm" disabled={!sel} onClick={() => sel && exportar().then(m => m.espelhoPdf(sel.func, cargo(sel.func.cargo_id), sel.calc, registros, cab, ocorrencias.filter(o => o.funcionario_id === sel.func.id)))}><FileDown size={16} />PDF do espelho</button>
+              <button className="btn ghost sm" disabled={!sel} onClick={() => gerarEspelhoPdf().catch(e => toast.erro((e as Error).message))}><FileDown size={16} />PDF do espelho</button>
             </div>
             {sel ? (
               <div className="table-wrap">
@@ -95,7 +106,7 @@ export default function Relatorios() {
                   </tbody>
                 </table>
               </div>
-            ) : <Vazio>Escolha um funcionário para ver o espelho de ponto.</Vazio>}
+            ) : <Vazio tipo="pessoas" titulo="Escolha um funcionário">O espelho de ponto mostra dia a dia entradas, saídas e faltas.</Vazio>}
           </>
         )}
       </div>

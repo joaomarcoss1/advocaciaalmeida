@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
-import { Crosshair, ExternalLink, LocateFixed, Download, Eye, EyeOff, KeyRound, RotateCcw, Trash2, Wand2 } from 'lucide-react';
+import { Fragment, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { ShieldCheck, Crosshair, ExternalLink, LocateFixed, Download, Eye, EyeOff, KeyRound, RotateCcw, Trash2, Wand2 } from 'lucide-react';
 import { Abas, Badge, Field, Modal, PageHeader, useConfirm, useToast, Vazio } from '@/components/ui';
 import { useAuth } from '@/context/Auth';
 import { useDados } from '@/context/Dados';
@@ -7,23 +8,113 @@ import { mesclarConfig } from '@/lib/config';
 import { isoParaBR, fmtData } from '@/lib/datetime';
 import { fmtDistancia, lerPosicao, linkMapa, type Posicao } from '@/lib/geo';
 import { distanciaMetros } from '@/lib/ponto';
+import { forcaSenha, gerarSenha, validarSenha } from '@/lib/seguranca';
 import type { Auditoria, Config, Papel, Usuario } from '@/lib/types';
 
-type Aba = 'escritorio' | 'ponto' | 'folha' | 'acessos' | 'auditoria' | 'dados';
+type Aba = 'escritorio' | 'ponto' | 'folha' | 'acessos' | 'seguranca' | 'auditoria' | 'dados';
+
+const FORCA = ['Muito fraca', 'Fraca', 'Razoável', 'Boa', 'Forte'];
+function Medidor({ senha }: { senha: string }) {
+  if (!senha) return null;
+  const f = validarSenha(senha) ? Math.min(forcaSenha(senha), 1) : forcaSenha(senha);
+  return (
+    <div className="medidor" role="status" aria-label={`Força da senha: ${FORCA[f]}`}>
+      <span className="barras">{[1, 2, 3, 4].map(n => <i key={n} className={n <= f ? `on f${f}` : ''} />)}</span>
+      <span className="hint">{validarSenha(senha) || FORCA[f]}</span>
+    </div>
+  );
+}
+
+function SegurancaConta() {
+  const { db, auditar } = useDados();
+  const toast = useToast();
+  const confirmar = useConfirm();
+  const [est, setEst] = useState<{ ativo: boolean; fatores: { id: string; nome: string; criado: string }[] } | null>(null);
+  const [cad, setCad] = useState<{ fatorId: string; qr: string; segredo: string } | null>(null);
+  const [codigo, setCodigo] = useState('');
+  const [ocupado, setOcupado] = useState(false);
+  const carregar = () => db.auth.mfa.estado().then(setEst).catch(e => toast.erro((e as Error).message));
+  useEffect(() => { if (db.auth.mfa.disponivel) carregar(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!db.auth.mfa.disponivel) return <div className="notice gold">A verificação em duas etapas usa o Supabase Auth e não existe no modo demonstração.</div>;
+
+  async function iniciar() {
+    setOcupado(true);
+    try { setCad(await db.auth.mfa.iniciar()); setCodigo(''); } catch (e) { toast.erro((e as Error).message); } finally { setOcupado(false); }
+  }
+  async function confirmarCad() {
+    if (!cad) return;
+    setOcupado(true);
+    try { await db.auth.mfa.confirmar(cad.fatorId, codigo); await auditar('2FA ativado', 'Verificação em duas etapas ativada'); toast.ok('Verificação em duas etapas ativada.'); setCad(null); await carregar(); }
+    catch (e) { toast.erro((e as Error).message); } finally { setOcupado(false); }
+  }
+  async function desativar(id: string) {
+    if (!(await confirmar('Desativar a verificação em duas etapas? Sua conta voltará a depender só da senha.', { perigo: true, rotulo: 'Desativar' }))) return;
+    try { await db.auth.mfa.remover(id); await auditar('2FA desativado', 'Verificação em duas etapas removida'); toast.ok('Verificação em duas etapas desativada.'); await carregar(); }
+    catch (e) { toast.erro((e as Error).message); }
+  }
+
+  return (
+    <div className="stack" style={{ maxWidth: 640 }}>
+      <div>
+        <div className="section-title"><ShieldCheck size={15} style={{ verticalAlign: 'middle' }} /> Verificação em duas etapas (sua conta)</div>
+        <p className="hint" style={{ marginTop: 6 }}>Além da senha, o login exige um código de 6 números gerado no celular (Google Authenticator, Microsoft Authenticator, Authy…). Com ela ativa, quem descobrir sua senha não consegue entrar nem ler dados pela API.</p>
+      </div>
+      {!est ? <p className="muted">Carregando…</p> : est.ativo && !cad ? (
+        <>
+          <div className="notice ok" role="status"><strong>Ativada.</strong> Sua conta está protegida por senha + código.</div>
+          {est.fatores.map(f => (
+            <div key={f.id} className="row between card card-pad" style={{ boxShadow: 'none' }}>
+              <span><strong>{f.nome}</strong><br /><span className="muted" style={{ fontSize: '.85rem' }}>Cadastrado em {new Date(f.criado).toLocaleDateString('pt-BR')}</span></span>
+              <button className="btn ghost danger sm" onClick={() => desativar(f.id)}>Desativar</button>
+            </div>
+          ))}
+          <p className="hint">Perdeu o celular? Outro administrador master pode remover o autenticador da sua conta no Supabase (Authentication → Users), e você entra só com a senha para cadastrar de novo.</p>
+        </>
+      ) : cad ? (
+        <div className="card card-pad stack" style={{ boxShadow: 'none' }}>
+          <ol style={{ margin: 0, paddingLeft: 20 }}>
+            <li>Abra o aplicativo autenticador e escolha <em>Adicionar conta</em>.</li>
+            <li>Leia o QR Code abaixo (ou digite a chave manualmente).</li>
+            <li>Digite o código de 6 números que o aplicativo mostrar.</li>
+          </ol>
+          <div className="row" style={{ gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+            <img src={cad.qr} alt="QR Code para cadastrar o autenticador" width={168} height={168} style={{ background: '#fff', padding: 8, borderRadius: 10, border: '1px solid var(--line)' }} />
+            <div><div className="section-title">Chave manual</div><code style={{ wordBreak: 'break-all', fontSize: '.9rem' }}>{cad.segredo}</code></div>
+          </div>
+          <Field label="Código de 6 números">
+            <input className="input" style={{ maxWidth: 200, letterSpacing: '.3em', textAlign: 'center', fontSize: '1.2rem' }} inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={codigo} onChange={e => setCodigo(e.target.value.replace(/\D/g, ''))} />
+          </Field>
+          <div className="row"><button className="btn" disabled={ocupado || codigo.length !== 6} onClick={confirmarCad}>Confirmar e ativar</button><button className="btn ghost" onClick={() => setCad(null)}>Cancelar</button></div>
+        </div>
+      ) : (
+        <>
+          <div className="notice gold" role="status"><strong>Desativada.</strong> Recomendado para todos os administradores.</div>
+          <div><button className="btn" disabled={ocupado} onClick={iniciar}>Ativar verificação em duas etapas</button></div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function Configuracoes() {
   const { db, config, usuarios, recarregar, auditar } = useDados();
   const { sessao } = useAuth();
   const toast = useToast();
   const confirmar = useConfirm();
-  const [aba, setAba] = useState<Aba>('escritorio');
+  const [params] = useSearchParams();
+  const abaInicial = params.get('aba');
+  const [aba, setAba] = useState<Aba>(['escritorio', 'ponto', 'folha', 'acessos', 'seguranca', 'auditoria', 'dados'].includes(abaInicial ?? '') ? (abaInicial as Aba) : 'escritorio');
   const [c, setC] = useState<Config>(config);
   const [novo, setNovo] = useState<{ nome: string; email: string; papel: Papel; senha: string } | null>(null);
   const [verSenha, setVerSenha] = useState(false);
   const [senhaDe, setSenhaDe] = useState<{ u: Usuario; senha: string } | null>(null);
   const [logs, setLogs] = useState<Auditoria[]>([]);
   useEffect(() => setC(config), [config]);
-  useEffect(() => { if (aba === 'auditoria') db.auditoria.list().then(l => setLogs(l.sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 80))); }, [aba, db]);
+  useEffect(() => { if (aba === 'auditoria') db.auditoria.list().then(l => setLogs(l.sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 400))); }, [aba, db]);
+  const [filtroLog, setFiltroLog] = useState('');
+  const [logAberto, setLogAberto] = useState<string | null>(null);
+  const logsVisiveis = logs.filter(l => !filtroLog.trim() || `${l.usuario} ${l.acao} ${l.detalhe}`.toLowerCase().includes(filtroLog.trim().toLowerCase()));
 
   async function salvar() {
     try { await db.config.save(mesclarConfig(c)); await auditar('Configurações alteradas', aba); toast.ok('Configurações salvas.'); await recarregar(); }
@@ -58,12 +149,10 @@ export default function Configuracoes() {
     const p = await posicaoAtual();
     if (p) setTeste({ dist: distanciaMetros(p.lat, p.lng, c.ponto.geofence_lat, c.ponto.geofence_lng), precisao: p.precisao });
   }
-  const gerarSenha = () => {
-    const alfa = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
-    return Array.from(crypto.getRandomValues(new Uint32Array(12))).map(n => alfa[n % alfa.length]).join('');
-  };
   async function criarUsuario() {
     if (!novo) return;
+    const problema = validarSenha(novo.senha);
+    if (problema) return toast.erro(problema);
     try {
       await db.acessos.criar({ nome: novo.nome, email: novo.email, papel: novo.papel, senha: novo.senha });
       await auditar('Acesso criado', `${novo.email} (${novo.papel})`);
@@ -109,7 +198,7 @@ export default function Configuracoes() {
       <PageHeader titulo="Configurações" sub="Dados do escritório, regras de ponto e folha, acessos ao painel." />
       <div className="card">
         <div style={{ padding: '0 12px' }}>
-          <Abas valor={aba} onChange={setAba} itens={[{ id: 'escritorio', rotulo: 'Escritório' }, { id: 'ponto', rotulo: 'Ponto' }, { id: 'folha', rotulo: 'Folha' }, { id: 'acessos', rotulo: 'Acessos' }, { id: 'auditoria', rotulo: 'Auditoria' }, { id: 'dados', rotulo: 'Dados' }]} />
+          <Abas valor={aba} onChange={setAba} itens={[{ id: 'escritorio', rotulo: 'Escritório' }, { id: 'ponto', rotulo: 'Ponto' }, { id: 'folha', rotulo: 'Folha' }, { id: 'acessos', rotulo: 'Acessos' }, { id: 'seguranca', rotulo: 'Segurança' }, { id: 'auditoria', rotulo: 'Auditoria' }, { id: 'dados', rotulo: 'Dados' }]} />
         </div>
         <div className="card-pad stack">
           {aba === 'escritorio' && (<>
@@ -189,11 +278,33 @@ export default function Configuracoes() {
               </table>{!usuarios.length && <Vazio>Nenhum acesso cadastrado.</Vazio>}</div>
             </div></>)}
 
-          {aba === 'auditoria' && (
+          {aba === 'seguranca' && <SegurancaConta />}
+
+          {aba === 'auditoria' && (<>
+            <div className="row between" style={{ gap: 12, flexWrap: 'wrap' }}>
+              <input className="input" style={{ maxWidth: 340 }} placeholder="Filtrar por pessoa, ação ou texto…" value={filtroLog} onChange={e => setFiltroLog(e.target.value)} aria-label="Filtrar auditoria" />
+              <span className="hint">Registro automático e permanente: não pode ser editado nem apagado. Mostrando {logsVisiveis.length} de {logs.length} mais recentes.</span>
+            </div>
             <div className="table-wrap"><table className="tbl">
-              <thead><tr><th>Quando</th><th>Quem</th><th>Ação</th><th>Detalhe</th></tr></thead>
-              <tbody>{logs.map(l => <tr key={l.id}><td className="mono">{fmtData(isoParaBR(l.created_at).data)} {isoParaBR(l.created_at).hhmm}</td><td>{l.usuario}</td><td><strong>{l.acao}</strong></td><td className="muted">{l.detalhe}</td></tr>)}</tbody>
-            </table>{!logs.length && <Vazio>Nenhuma ação registrada ainda.</Vazio>}</div>)}
+              <thead><tr><th>Quando</th><th>Quem</th><th>Ação</th><th>Detalhe</th><th /></tr></thead>
+              <tbody>{logsVisiveis.map(l => (
+                <Fragment key={l.id}>
+                  <tr>
+                    <td className="mono">{fmtData(isoParaBR(l.created_at).data)} {isoParaBR(l.created_at).hhmm}</td><td>{l.usuario}</td><td><strong>{l.acao}</strong></td><td className="muted">{l.detalhe}</td>
+                    <td className="right">{(l.antes || l.depois) && <button className="btn ghost sm" onClick={() => setLogAberto(logAberto === l.id ? null : l.id)} aria-expanded={logAberto === l.id}>{logAberto === l.id ? 'Ocultar' : 'Ver mudança'}</button>}</td>
+                  </tr>
+                  {logAberto === l.id && (
+                    <tr><td colSpan={5}><div className="diff">
+                      {Object.keys({ ...(l.antes ?? {}), ...(l.depois ?? {}) }).map(k => (
+                        <div key={k}><span className="k">{k}</span>
+                          {l.antes && k in l.antes && <span className="de">{String(l.antes[k] ?? '—')}</span>}
+                          {l.antes && l.depois && <span className="seta">→</span>}
+                          {l.depois && k in l.depois && <span className="para">{String(l.depois[k] ?? '—')}</span>}</div>
+                      ))}
+                    </div></td></tr>
+                  )}
+                </Fragment>))}</tbody>
+            </table>{!logsVisiveis.length && <Vazio tipo="documento" titulo="Nenhuma ação registrada">As alterações feitas no sistema aparecem aqui automaticamente.</Vazio>}</div></>)}
 
           {aba === 'dados' && (<>
             <div className="row"><button className="btn ghost" onClick={backup}><Download size={17} />Baixar backup (JSON)</button>
@@ -212,27 +323,29 @@ export default function Configuracoes() {
               <label className={`role-opt ${novo.papel === 'admin' ? 'on' : ''}`}><input type="radio" name="papel" checked={novo.papel === 'admin'} onChange={() => setNovo({ ...novo, papel: 'admin' })} /><span><strong>Administrador master</strong><br /><span className="muted">Acesso total: salários, folha, configurações e gestão de acessos (pode criar outros masters).</span></span></label>
               <label className={`role-opt ${novo.papel === 'gerente' ? 'on' : ''}`}><input type="radio" name="papel" checked={novo.papel === 'gerente'} onChange={() => setNovo({ ...novo, papel: 'gerente' })} /><span><strong>Gerência</strong><br /><span className="muted">Aprova ponto, registra ocorrências e vê escalas. Não vê salários nem folha.</span></span></label>
             </div>
-            <Field label="Senha inicial (mín. 8 caracteres)" dica="Combine letras e números. Anote e repasse com segurança; o usuário pode pedir a troca depois.">
+            <Field label="Senha inicial (mín. 10 caracteres)" dica="Use letras e números; quanto mais longa, melhor. Anote e repasse com segurança. Com a verificação em duas etapas ativada, a senha sozinha não basta para entrar.">
               <div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
                 <input className="input" type={verSenha ? 'text' : 'password'} autoComplete="new-password" value={novo.senha} onChange={e => setNovo({ ...novo, senha: e.target.value })} />
                 <button type="button" className="icon-btn" aria-label={verSenha ? 'Ocultar senha' : 'Mostrar senha'} onClick={() => setVerSenha(v => !v)}>{verSenha ? <EyeOff size={18} /> : <Eye size={18} />}</button>
                 <button type="button" className="icon-btn" aria-label="Gerar senha forte" title="Gerar senha forte" onClick={() => { setNovo({ ...novo, senha: gerarSenha() }); setVerSenha(true); }}><Wand2 size={18} /></button>
               </div>
+              <Medidor senha={novo.senha} />
             </Field>
           </div>
         </Modal>
       )}
 
       {senhaDe && (
-        <Modal titulo="Redefinir senha" onClose={() => setSenhaDe(null)} rodape={<><button className="btn ghost" onClick={() => setSenhaDe(null)}>Cancelar</button><button className="btn" disabled={senhaDe.senha.length < 8} onClick={redefinir}>Salvar nova senha</button></>}>
+        <Modal titulo="Redefinir senha" onClose={() => setSenhaDe(null)} rodape={<><button className="btn ghost" onClick={() => setSenhaDe(null)}>Cancelar</button><button className="btn" disabled={!!validarSenha(senhaDe.senha)} onClick={redefinir}>Salvar nova senha</button></>}>
           <div className="stack">
             <p>Usuário: <strong>{senhaDe.u.nome}</strong> <span className="muted">· {senhaDe.u.email}</span></p>
-            <Field label="Nova senha (mín. 8 caracteres)">
+            <Field label="Nova senha (mín. 10 caracteres, com letras e números)">
               <div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
                 <input className="input" type={verSenha ? 'text' : 'password'} autoComplete="new-password" value={senhaDe.senha} onChange={e => setSenhaDe({ ...senhaDe, senha: e.target.value })} autoFocus />
                 <button type="button" className="icon-btn" aria-label={verSenha ? 'Ocultar senha' : 'Mostrar senha'} onClick={() => setVerSenha(v => !v)}>{verSenha ? <EyeOff size={18} /> : <Eye size={18} />}</button>
                 <button type="button" className="icon-btn" aria-label="Gerar senha forte" title="Gerar senha forte" onClick={() => { setSenhaDe({ ...senhaDe, senha: gerarSenha() }); setVerSenha(true); }}><Wand2 size={18} /></button>
               </div>
+              <Medidor senha={senhaDe.senha} />
             </Field>
           </div>
         </Modal>

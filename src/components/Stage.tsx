@@ -13,12 +13,15 @@ export default function Stage({ children }: { children?: ReactNode }) {
   const ref = useRef<HTMLElement>(null);
   const [ativo, setAtivo] = useState(0);
   const [pausa, setPausa] = useState(false);
+  // Respeita "reduzir movimento": sem troca automática de destaques (WCAG 2.2.2); pausa também com foco do teclado.
+  const [reduz] = useState(() => typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const parado = pausa || reduz;
 
   useEffect(() => {
-    if (pausa) return;
+    if (parado) return;
     const t = setTimeout(() => setAtivo(a => (a + 1) % DESTAQUES.length), INTERVALO);
     return () => clearTimeout(t);
-  }, [ativo, pausa]);
+  }, [ativo, parado]);
 
   function mover(e: React.PointerEvent<HTMLElement>) {
     const el = ref.current;
@@ -46,7 +49,7 @@ export default function Stage({ children }: { children?: ReactNode }) {
 
       <div className="stage-mid">{children}</div>
 
-      <footer className="stage-bottom" onPointerEnter={() => setPausa(true)} onPointerLeave={() => setPausa(false)}>
+      <footer className="stage-bottom" onPointerEnter={() => setPausa(true)} onPointerLeave={() => setPausa(false)} onFocus={() => setPausa(true)} onBlur={() => setPausa(false)}>
         <div className="destaques" aria-live="off">
           {DESTAQUES.map((x, k) => (
             <article key={x.t} className={k === ativo ? 'on' : ''} aria-hidden={k !== ativo}>
@@ -58,7 +61,7 @@ export default function Stage({ children }: { children?: ReactNode }) {
         <div className="barras" role="tablist" aria-label="Destaques do sistema">
           {DESTAQUES.map((x, k) => (
             <button key={x.t} role="tab" aria-selected={k === ativo} aria-label={x.t} className={k === ativo ? 'on' : ''} onClick={() => setAtivo(k)}>
-              <span style={k === ativo && !pausa ? { animationDuration: `${INTERVALO}ms` } : undefined} />
+              <span style={k === ativo && !parado ? { animationDuration: `${INTERVALO}ms` } : undefined} />
             </button>
           ))}
         </div>

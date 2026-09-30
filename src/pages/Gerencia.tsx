@@ -55,7 +55,7 @@ export default function Gerencia() {
             </table>
             <p className="hint" style={{ padding: 14 }}>Faltas não justificadas serão descontadas na folha (1 diária por dia). Se o funcionário esqueceu de bater o ponto, use <Link to="/painel/ponto">Registros de ponto → Lançar marcação</Link>.</p>
           </div>
-        ) : <Vazio>Nenhuma falta pendente de justificativa nos últimos 14 dias.</Vazio>)}
+        ) : <Vazio tipo="ok" titulo="Sem pendências">Nenhuma falta aguardando justificativa nos últimos 14 dias.</Vazio>)}
       </div>
       {abonar && <ModalOcorrencia inicial={abonar} onClose={() => setAbonar(null)} />}
     </>

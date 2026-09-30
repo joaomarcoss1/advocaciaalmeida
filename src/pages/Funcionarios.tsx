@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { KeyRound, Pencil, Plus, Search, Trash2, UserMinus, UserPlus } from 'lucide-react';
+import { KeyRound, Pencil, Wand2, Plus, Search, Trash2, UserMinus, UserPlus } from 'lucide-react';
 import { Badge, Field, Modal, PageHeader, useConfirm, useToast, Vazio } from '@/components/ui';
 import { useDados } from '@/context/Dados';
 import { brl, iniciais, mascaraCpf, mascaraTelefone, semAcento } from '@/lib/format';
 import { VINCULO_LABEL, type Funcionario, type Vinculo } from '@/lib/types';
 import { fmtData } from '@/lib/datetime';
+import { gerarPin, validarPin } from '@/lib/seguranca';
 
 type Form = Partial<Funcionario> & { salarioTxt?: string; diariaTxt?: string };
 const vazio = (hoje: string): Form => ({
@@ -139,18 +140,24 @@ export default function Funcionarios() {
               ))}
             </tbody>
           </table>
-          {!lista.length && <Vazio>Nenhum funcionário encontrado.</Vazio>}
+          {!lista.length && (funcionarios.length
+            ? <Vazio tipo="busca" titulo="Nenhum funcionário encontrado">Ajuste a busca ou o filtro de situação.</Vazio>
+            : <Vazio tipo="pessoas" titulo="Sua equipe começa aqui" acao={{ rotulo: 'Cadastrar o primeiro funcionário', onClick: () => setEd(vazio(agora.data)) }}>Cadastre nome, cargo, escala e salário: o sistema calcula a diária e a folha sozinho.</Vazio>)}
         </div>
       </div>
 
       {pinDe && (
         <Modal titulo="Definir PIN de ponto" onClose={() => setPinDe(null)}
-          rodape={<><button className="btn ghost" onClick={() => setPinDe(null)}>Cancelar</button><button className="btn" disabled={!/^\d{4,8}$/.test(pin)} onClick={salvarPin}>Salvar PIN</button></>}>
+          rodape={<><button className="btn ghost" onClick={() => setPinDe(null)}>Cancelar</button><button className="btn" disabled={!!validarPin(pin)} onClick={salvarPin}>Salvar PIN</button></>}>
           <div className="stack">
             <p>Funcionário: <strong>{pinDe.nome}</strong></p>
-            <Field label="Novo PIN (4 a 8 números)" dica="O PIN é guardado com criptografia e não pode ser consultado depois. Entregue-o ao funcionário e peça para não compartilhar.">
+            <Field label="Novo PIN (6 a 8 números)" dica="O PIN é guardado com criptografia e não pode ser consultado depois. Entregue-o ao funcionário e peça para não compartilhar. Sequências e repetições (123456, 111111) são recusadas.">
               <input className="input pin-input" inputMode="numeric" maxLength={8} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ''))} autoFocus />
             </Field>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="btn ghost sm" onClick={() => setPin(gerarPin())}><Wand2 size={15} />Gerar PIN aleatório</button>
+              {pin.length > 0 && validarPin(pin) && <span className="hint" style={{ color: 'var(--bad)' }}>{validarPin(pin)}</span>}
+            </div>
           </div>
         </Modal>
       )}
